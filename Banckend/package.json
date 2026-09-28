@@ -1,0 +1,26 @@
+{
+  "name": "team-time-off-tracker",
+  "version": "1.0.0",
+  "description": "A small backend API for tracking team time-off requests.",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "nodemon --watch src --ext ts --exec tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js"
+  },
+  "keywords": [],
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mongoose": "^8.4.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.12",
+    "nodemon": "^3.1.14",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.5"
+  }
+}
