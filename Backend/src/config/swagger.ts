@@ -3,9 +3,8 @@ import path from 'node:path';
 import swaggerJsdoc from 'swagger-jsdoc';
 
 /**
- * Swagger definition. The JSDoc blocks below are the source of truth for the
- * OpenAPI document, so the docs sit next to the schema definitions they
- * describe rather than being duplicated by hand.
+ * Swagger definition. The JSDoc blocks in `swagger.docs.ts` describe the paths
+ * and reuse the schemas below.
  */
 const options: swaggerJsdoc.Options = {
   definition: {
@@ -14,15 +13,25 @@ const options: swaggerJsdoc.Options = {
       title: 'Team Time-Off Tracker API',
       version: '1.0.0',
       description:
-        'Backend API for creating and reviewing employee time-off requests. ' +
-        'There is no authentication in this project.',
+        'Backend API for submitting and reviewing employee time-off requests. ' +
+        'All routes except `POST /auth/login` and `GET /health` require a bearer ' +
+        'token. Use the **Authorize** button to paste a token from the login response.',
     },
     servers: [{ url: '/', description: 'Current host' }],
     tags: [
-      { name: 'Employees', description: 'Employee records' },
+      { name: 'Auth', description: 'Authentication' },
+      { name: 'Users', description: 'User records and leave balances' },
       { name: 'Requests', description: 'Leave requests and approvals' },
     ],
     components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'Paste the `token` returned by `POST /auth/login`.',
+        },
+      },
       schemas: {
         SuccessResponse: {
           type: 'object',
@@ -35,17 +44,41 @@ const options: swaggerJsdoc.Options = {
             message: { type: 'string', example: 'Employee not found' },
           },
         },
+        UnauthorizedResponse: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: false },
+            message: { type: 'string', example: 'Invalid or expired token' },
+          },
+        },
+        ForbiddenResponse: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: false },
+            message: {
+              type: 'string',
+              example: 'You do not have permission to perform this action',
+            },
+          },
+        },
         RequestStatus: {
           type: 'string',
           enum: ['PENDING', 'APPROVED', 'REJECTED'],
           example: 'PENDING',
         },
-        Employee: {
+        UserRole: {
+          type: 'string',
+          enum: ['EMPLOYEE', 'ADMIN'],
+          example: 'EMPLOYEE',
+        },
+        User: {
           type: 'object',
+          description: 'A user. `passwordHash` is never returned by the API.',
           properties: {
             id: { type: 'string', example: '6abacda7072b490f821f313e' },
             name: { type: 'string', example: 'Moneem Abdullah' },
             email: { type: 'string', format: 'email', example: 'moneem@example.com' },
+            role: { $ref: '#/components/schemas/UserRole' },
             annualLeaveBalance: {
               type: 'integer',
               description: 'Server-managed. Starts at 20 and changes on approval or rejection.',
@@ -55,33 +88,28 @@ const options: swaggerJsdoc.Options = {
             updatedAt: { type: 'string', format: 'date-time' },
           },
         },
-        CreateEmployeeBody: {
+        LoginBody: {
           type: 'object',
-          required: ['name', 'email'],
+          required: ['email', 'password'],
           properties: {
-            name: { type: 'string', minLength: 3, example: 'Moneem Abdullah' },
-            email: { type: 'string', format: 'email', example: 'moneem@example.com' },
+            email: { type: 'string', format: 'email', example: 'admin@example.com' },
+            password: { type: 'string', format: 'password', example: 'admin123' },
           },
         },
-        ReassignAnnualLeaveBody: {
+        LoginResponse: {
           type: 'object',
-          required: ['number'],
           properties: {
-            number: {
-              type: 'number',
-              description:
-                'Signed number of days added to every employee balance. ' +
-                'This endpoint is not validated, so a non-numeric value is not rejected.',
-              example: 5,
-            },
+            token: { type: 'string', description: 'JWT. Send as `Authorization: Bearer <token>`.' },
+            user: { $ref: '#/components/schemas/User' },
           },
         },
         CreateRequestBody: {
           type: 'object',
-          required: ['name', 'email', 'startDate', 'endDate', 'reason'],
+          required: ['startDate', 'endDate', 'reason'],
+          description:
+            'The submitting user is taken from the bearer token. `userId`, `name`, ' +
+            '`email`, `days` and `status` are rejected.',
           properties: {
-            name: { type: 'string', minLength: 3, example: 'Moneem Abdullah' },
-            email: { type: 'string', format: 'email', example: 'moneem@example.com' },
             startDate: { type: 'string', example: '2026-10-05' },
             endDate: { type: 'string', example: '2026-10-09' },
             reason: { type: 'string', minLength: 3, example: 'Family event' },
@@ -94,14 +122,27 @@ const options: swaggerJsdoc.Options = {
             status: { type: 'string', enum: ['APPROVED', 'REJECTED'], example: 'APPROVED' },
           },
         },
+        ReassignAnnualLeaveBody: {
+          type: 'object',
+          required: ['number'],
+          properties: {
+            number: {
+              type: 'integer',
+              description:
+                'Signed whole number of days added to every user balance. ' +
+                'Rejected if it would leave any user negative.',
+              example: 5,
+            },
+          },
+        },
         LeaveRequest: {
           type: 'object',
           properties: {
             id: { type: 'string', example: '6abacd3f296d71f2c0b00417' },
-            employee: { $ref: '#/components/schemas/Employee' },
+            user: { $ref: '#/components/schemas/User' },
             startDate: { type: 'string', example: '2026-10-05' },
             endDate: { type: 'string', example: '2026-10-09' },
-            reason: { type: 'string', example: 'Family trip' },
+            reason: { type: 'string', example: 'Family event' },
             days: {
               type: 'integer',
               description: 'Working days (Mon-Fri) counted by the server.',
