@@ -12,7 +12,7 @@ function today() {
 
 const requestSchema = z
   .object({
-    name: z.string().trim().min(1, 'Name is required'),
+    name: z.string().trim().min(3, 'Name must be at least 3 characters'),
     email: z
       .string()
       .trim()
@@ -41,7 +41,31 @@ const requestSchema = z
         path: ['endDate'],
       });
     }
+    if (
+      data.startDate &&
+      data.endDate &&
+      data.endDate >= data.startDate &&
+      countWeekdays(data.startDate, data.endDate) === 0
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Request must span at least one working day (Mon-Fri)',
+        path: ['startDate'],
+      });
+    }
   });
+
+function countWeekdays(start, end) {
+  let count = 0;
+  const current = new Date(`${start}T00:00:00Z`);
+  const last = new Date(`${end}T00:00:00Z`);
+  while (current <= last) {
+    const day = current.getUTCDay();
+    if (day !== 0 && day !== 6) count += 1;
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return count;
+}
 
 function Field({ label, htmlFor, error, children }) {
   return (
@@ -91,19 +115,11 @@ function EmployeePage() {
 
     setSubmitting(true);
     try {
-      const employees = await apiRequest('/employees');
-      const employee = employees.find(
-        (emp) => emp.email.toLowerCase() === result.data.email.toLowerCase()
-      );
-      if (!employee) {
-        toast.error('No employee found with this email. Please contact your admin.');
-        return;
-      }
-
       await apiRequest('/requests', {
         method: 'POST',
         body: JSON.stringify({
-          employeeId: employee.id,
+          name: result.data.name,
+          email: result.data.email,
           startDate: result.data.startDate,
           endDate: result.data.endDate,
           reason: result.data.reason,
