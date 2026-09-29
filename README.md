@@ -29,7 +29,16 @@ under concurrency rather than feature breadth.
   `APPROVED` requests.
 - **Leave balance validation** — approval is rejected if it would push the balance
   below zero.
-- **Swagger / OpenAPI documentation** — interactive API reference at `/api-docs`.
+- **JWT authentication** — password login issuing a signed token; every route except
+  login and health requires `Authorization: Bearer <token>`.
+- **Role-based authorization** — `EMPLOYEE` and `ADMIN`, enforced by middleware.
+  Employees can only ever see and act on their own leave.
+- **Secure credentials** — passwords are bcrypt-hashed, and the hash is never
+  selected into query results or returned by the API.
+- **Seeded admin** — the first administrator is created from environment variables
+  by `npm run seed`, which is safe to run repeatedly.
+- **Swagger / OpenAPI documentation** — interactive API reference at `/api-docs`,
+  with a **Authorize** button for pasting a token.
 
 ---
 
@@ -46,6 +55,8 @@ under concurrency rather than feature breadth.
 | Mongoose 8 | ODM |
 | Zod 3 | Request and query validation |
 | CORS | Cross-origin access for the frontend dev server |
+| jsonwebtoken | JWT signing and verification |
+| bcryptjs | Password hashing |
 | Swagger UI / swagger-jsdoc | OpenAPI documentation |
 | dotenv | Environment variables |
 | nodemon + tsx | Development server with reload |
@@ -84,21 +95,28 @@ team-time-off-tracker/
 │       │   ├── swagger.ts         # OpenAPI definition
 │       │   └── swagger.docs.ts    # JSDoc for all endpoints
 │       ├── controllers/
-│       │   ├── employee.controller.ts
-│       │   └── request.controller.ts
+│       │   ├── auth.controller.ts
+│       │   ├── request.controller.ts
+│       │   └── user.controller.ts
+│       ├── middleware/
+│       │   └── auth.ts            # requireAuth (401) + requireRole (403)
 │       ├── models/
-│       │   ├── employee.model.ts
-│       │   └── timeOffRequest.model.ts
+│       │   ├── timeOffRequest.model.ts
+│       │   └── user.model.ts      # identity, balance, role, passwordHash
 │       ├── routes/
-│       │   ├── index.ts           # mounts /employees and /requests
-│       │   ├── employee.routes.ts
-│       │   └── request.routes.ts
+│       │   ├── index.ts           # mounts /auth, /users and /requests
+│       │   ├── auth.routes.ts
+│       │   ├── request.routes.ts
+│       │   └── user.routes.ts
 │       ├── schemas/
-│       │   ├── employee.schema.ts
-│       │   └── request.schema.ts
+│       │   ├── request.schema.ts
+│       │   └── user.schema.ts
+│       ├── seed/
+│       │   └── admin.ts           # npm run seed
 │       ├── services/
-│       │   ├── employee.service.ts
-│       │   └── request.service.ts # business rules + transactions
+│       │   ├── auth.service.ts    # bcrypt + JWT
+│       │   ├── request.service.ts # business rules + transactions
+│       │   └── user.service.ts
 │       ├── utils/
 │       │   ├── AppError.ts
 │       │   └── date.ts            # UTC date + weekday calculation
@@ -147,29 +165,17 @@ git clone https://github.com/Moneemabdullah/team-time-off-tracker.git
 cd team-time-off-tracker
 ```
 
-### Environment Variables
 
-The backend reads its configuration from `Backend/.env`. Copy the example file:
+### Create the first admin
+
+There is no registration endpoint, so seed the initial administrator:
 
 ```bash
-cp Backend/.env.example Backend/.env
+npm run seed        # from Backend/
 ```
 
-`Backend/.env.example` defines:
-
-| Variable | Example | Description |
-| --- | --- | --- |
-| `PORT` | `PORT=5000` | Port the API listens on. Defaults to `5000` if unset. |
-| `MONGODB_URI` | `MONGODB_URI=mongodb://localhost:27017/team-time-off-tracker` | MongoDB connection string. **Required** — the server exits if it is missing. |
-
-The connection string differs by context:
-
-- Running locally: `mongodb://localhost:27017/team-time-off-tracker`
-- Running in Docker: `mongodb://mongodb:27017/team-time-off-tracker` (the service name,
-  not `localhost`)
-
-When using Docker Compose you do not need to set this yourself — `docker-compose.yml`
-passes it to the `backend` service.
+It creates the admin only if that email does not already exist, hashes the password
+with bcrypt, and never logs it. Safe to run more than once.
 
 The frontend reads `VITE_API_URL` and falls back to `http://localhost:5000` if it is not
 set. There is no `.env` file for the frontend; set it yourself if you need to point the
@@ -253,17 +259,18 @@ The full written reference, including every validation rule and error code, is i
 
 ## API Overview
 
-All endpoints are unauthenticated.
+Every route requires a bearer token except `POST /auth/login` and `GET /health`.
 
-| Method | Endpoint         | Description            |
-| ------ | ---------------- | ---------------------- |
-| `POST` | `/employees`     | Create employee        |
-| `GET`  | `/employees`     | List employees         |
-| `GET`  | `/employees/:id` | Get employee           |
-| `POST` | `/employees/reassign-annual-leave` | Add days to every balance |
-| `POST` | `/requests`      | Create leave request   |
-| `GET`  | `/requests`      | List/filter requests   |
-| `PATCH`| `/requests/:id`  | Approve/reject request |
+| Method | Endpoint                       | Access    | Description            |
+| ------ | ------------------------------ | --------- | ---------------------- |
+| `POST` | `/auth/login`                  | Public    | Exchange credentials for a JWT |
+| `GET`  | `/users/me`                    | Any       | Own profile and balance |
+| `GET`  | `/users`                       | Admin     | List users             |
+| `GET`  | `/users/:id`                   | Admin     | Get one user           |
+| `POST` | `/users/reassign-annual-leave` | Admin     | Add days to every balance |
+| `POST` | `/requests`                    | Any       | Create leave request   |
+| `GET`  | `/requests`                    | Any       | List requests (own, or all for admin) |
+| `PATCH`| `/requests/:id`                | Admin     | Approve/reject request |
 
 Additional routes:
 
@@ -288,12 +295,16 @@ Responses use a consistent envelope:
 
 ## Business Rules
 
-- New employees start with **20 days** of annual leave balance. The value is set
-  server-side and cannot be supplied by the client.
-- `POST /employees/reassign-annual-leave` adds a signed number of days to the balance of
-  **every** employee. It is a bulk operation — there is no per-employee targeting, and
-  it bypasses the balance guard used by approvals. See
-  [Known Limitations](#known-limitations--unfinished-work).
+- New users start with **20 days** of annual leave balance, and default to the
+  `EMPLOYEE` role. Both are set server-side and cannot be supplied by the client.
+- A leave request is attributed to the **bearer token's user**. The body cannot
+  choose the owner: `userId`, `name`, `email`, `days` and `status` are rejected.
+- An employee can only read their **own** requests. Requesting another user's with
+  a `userId` filter returns `403`; only admins may list everyone.
+- Only admins may approve, reject, or change any leave balance.
+- `POST /users/reassign-annual-leave` adds a signed number of days to the balance of
+  **every** user. It is a bulk, admin-only operation with no per-user targeting, and
+  it is refused outright if the change would leave anyone negative.
 - Email addresses are **unique** and stored lower-cased.
 - Leave **days are calculated on the server**. A client cannot set `days` or `status`;
   sending either is rejected with `400`.
@@ -403,36 +414,52 @@ These were made where the brief left room for interpretation.
 
 ## Known Limitations / Unfinished Work
 
-The backend is complete and verified. The frontend is **not yet integrated** and has
-known defects:
+The backend is complete and verified. The frontend is **not integrated with
+authentication** and has known defects:
 
-- **`EmployeePage` sends the employee's name as `employeeId`.** The backend requires a
-  24-character ObjectId, so every request submission is rejected with `400`. The page
-  needs to load employees from `GET /employees` and submit the selected ID.
+- **The frontend sends no `Authorization` header.** Every call will now return
+  `401`. It needs a login step that stores the token and attaches it to each
+  request, which has not been implemented.
+- **The frontend still calls the removed `/employees` endpoints.** `AdminPage`
+  requests `/employees` and `POST /employees/reassign-annual-leave`; both moved to
+  `/users` and are now admin-only.
+- **`POST /requests` no longer accepts `name` and `email`.** The backend derives the
+  user from the token, so `EmployeePage` must drop those fields and send only
+  `startDate`, `endDate` and `reason`.
 - **`AdminPage` reads the wrong response shape.** It assigns the full
-  `{ success, data }` envelope to state and then calls `.filter()` on it, which throws
-  at runtime.
-- **`AdminPage` uses `_id`, but the API returns `id`.** Approve/reject therefore calls
-  `PATCH /requests/undefined`, and the list never refreshes after an update.
-- **`AdminPage` compares status against `'pending'`,** while the API returns `'PENDING'`,
-  so the approve/reject buttons never render.
+  `{ success, data }` envelope to state and then calls `.filter()` on it, which
+  throws at runtime.
+- **`AdminPage` uses `_id`, but the API returns `id`.** Approve/reject therefore
+  calls `PATCH /requests/undefined`, and the list never refreshes after an update.
+- **`AdminPage` compares status against `'pending'`,** while the API returns
+  `'PENDING'`, so the approve/reject buttons never render.
 - **The frontend container cannot start.** `Frontend/Dockerfile` runs
   `CMD ["npm", "start"]`, but `Frontend/package.json` defines no `start` script. The
   service exits with an npm error.
 - **`EXPOSE 3000` does not match the Vite default ports** (5173 for dev, 4173 for
   preview), and `vite.config.js` sets no `server.port`.
 - **`VITE_API_URL` is not set in Docker Compose.** The bundle falls back to
-  `http://localhost:5000`, which happens to work through the published port but is not
-  configured. Vite inlines this at build time, so it would need to be a build argument.
-- **`POST /employees/reassign-annual-leave` is unvalidated and not transactional.** Its
-  body is never parsed, so a quoted string such as `{"number": "7"}` is accepted and
-  silently corrupts every balance (a balance of `25` becomes `"257"`), while a
-  negative or missing value returns `500` with a raw Mongoose error in the message.
-  Each employee is saved in a separate loop iteration, so a mid-way failure leaves
-  balances partially applied. Its success response also returns a `message` with no
-  `data` field, unlike every other endpoint. Treat it as development-only until it
-  gets a Zod schema and a transaction.
-- **There is no automated test suite** (see [Testing](#testing)).
+  `http://localhost:5000`, which happens to work through the published port but is
+  not configured. Vite inlines this at build time, so it would need to be a build
+  argument.
+
+### Backend
+
+- **There is no automated test suite.** The verification for this work was done with
+  throwaway scripts outside the repository, covering login, token handling, role
+  separation, the request rules and concurrent approvals. Those scripts are not
+  committed, so they cannot be re-run as-is.
+- **No user registration endpoint exists.** New users must be created directly in the
+  database; only the initial admin can be created from the command line, via
+  `npm run seed`. Adding a way to create further employees is an obvious next step.
+- **There is no annual leave renewal.** Balances only change through approvals,
+  rejections and the admin reassign endpoint, so a year passes without them resetting.
+  The original brief asked to keep an existing renewal job, but no such job or yearly
+  configuration existed in the repository, and it was skipped rather than invented.
+- **`POST /users/reassign-annual-leave` is admin-only but still not transactional.**
+  It validates its input and refuses an operation that would leave anyone negative,
+  but the bulk `updateMany` is a single write, so a mid-operation failure is unlikely
+  but not impossible.
 
 ---
 

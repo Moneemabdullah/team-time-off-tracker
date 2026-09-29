@@ -4,30 +4,88 @@ Base URL: `http://localhost:5000`
 
 All request and response bodies are JSON.
 
-There is **no authentication or authorization** in this project — every endpoint is open.
+Interactive documentation is served at **`/api-docs`**.
+
+---
+
+## Authentication
+
+Every route except `POST /auth/login` and `GET /health` requires a bearer token.
+
+```http
+Authorization: Bearer <token>
+```
+
+Log in to obtain one:
+
+```bash
+curl -X POST http://localhost:5000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{ "email": "admin@example.com", "password": "admin123" }'
+```
+
+### `200` response
+
+```json
+{
+  "success": true,
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+      "id": "6abc11a25775719ba0c228b1",
+      "name": "System Admin",
+      "email": "admin@example.com",
+      "role": "ADMIN",
+      "annualLeaveBalance": 20
+    }
+  }
+}
+```
+
+`passwordHash` is **never** included in any response. It is also `select: false` on
+the model, so it does not load into query results in the first place.
+
+Tokens carry the user id and role, but the role is re-read from the database on
+every request, so a role change takes effect immediately rather than waiting for
+the token to expire. Deleting a user invalidates their tokens at once.
+
+### Errors
+
+| Code | When |
+| --- | --- |
+| `400` | malformed body |
+| `401` | `Invalid email or password` |
+
+An unknown email and a wrong password return the same `401` with the same message,
+so the endpoint cannot be used to discover which accounts exist.
+
+---
+
+## Roles
+
+| Role | Can do |
+| --- | --- |
+| `EMPLOYEE` (default) | Log in, create own leave requests, view own requests, view own balance |
+| `ADMIN` | Everything an employee can, plus view all requests, list/get users, approve or reject, reassign annual leave |
+
+Employees **cannot** approve or reject, read another user's requests, or change any
+leave balance. Role checks are enforced by `requireRole` middleware rather than
+inside controllers.
 
 ---
 
 ## Response format
 
-Every response uses one of two shapes.
-
 **Success**
 
 ```json
-{
-  "success": true,
-  "data": {}
-}
+{ "success": true, "data": {} }
 ```
 
 **Error**
 
 ```json
-{
-  "success": false,
-  "message": "Employee not found"
-}
+{ "success": false, "message": "Leave request not found" }
 ```
 
 `data` is an object for single records and an array for list endpoints.
@@ -39,7 +97,9 @@ Every response uses one of two shapes.
 | `200` | Successful read or update |
 | `201` | Record created |
 | `400` | Invalid input or a violated business rule |
-| `404` | Employee or request not found |
+| `401` | Missing, invalid or expired token |
+| `403` | Authenticated, but not permitted |
+| `404` | User or request not found |
 | `409` | Conflict — overlapping dates, invalid state transition, or insufficient balance |
 | `500` | Unexpected server error |
 
@@ -53,9 +113,12 @@ Every response uses one of two shapes.
 * A request that spans **zero** working days is rejected with `400`.
 * `startDate` must be **on or after today**; past dates are rejected with `400`.
 * A new request always starts as `PENDING`.
-* Creating a request does **not** touch the employee's balance — that happens on approval.
-* The client cannot set `days` or `status`; both are decided by the server. Sending
-  either is rejected with `400`.
+* Creating a request does **not** change the balance — that happens on approval.
+* The request is attributed to the **bearer token's user**. The body cannot choose
+  the owner: `userId`, `name`, `email`, `days` and `status` are all rejected with
+  `400`.
+* An employee cannot read another user's requests, even by passing a `userId`
+  filter — that returns `403`.
 
 ### Status values
 
@@ -77,27 +140,26 @@ The API uses upper case; the database stores lower case.
 POST /requests
 ```
 
+Any authenticated user. The owner comes from the token.
+
 ### Request body
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `employeeId` | string | yes | 24-character MongoDB ObjectId |
 | `startDate` | string | yes | `YYYY-MM-DD` |
 | `endDate` | string | yes | `YYYY-MM-DD` |
 | `reason` | string | yes | at least 3 characters |
-
-`days` and `status` are **not accepted** — the body is strictly validated.
 
 ### Example
 
 ```bash
 curl -X POST http://localhost:5000/requests \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
-    "employeeId": "6abacda7072b490f821f313e",
     "startDate": "2026-10-05",
     "endDate": "2026-10-09",
-    "reason": "Family trip"
+    "reason": "Family event"
   }'
 ```
 
@@ -107,19 +169,21 @@ curl -X POST http://localhost:5000/requests \
 {
   "success": true,
   "data": {
-    "id": "6abacd3f296d71f2c0b00417",
-    "employee": {
-      "id": "6abacda7072b490f821f313e",
-      "name": "Alice Tester",
-      "annualLeaveBalance": 10
+    "id": "6abc1285dc54d57107daa61f",
+    "user": {
+      "id": "6abc1275dc54d57107daa61b",
+      "name": "Employee One",
+      "email": "emp@example.com",
+      "role": "EMPLOYEE",
+      "annualLeaveBalance": 20
     },
     "startDate": "2026-10-05",
     "endDate": "2026-10-09",
-    "reason": "Family trip",
+    "reason": "Family event",
     "days": 5,
     "status": "PENDING",
-    "createdAt": "2026-09-29T10:15:00.000Z",
-    "updatedAt": "2026-09-29T10:15:00.000Z"
+    "createdAt": "2026-09-29T12:00:00.000Z",
+    "updatedAt": "2026-09-29T12:00:00.000Z"
   }
 }
 ```
@@ -130,12 +194,10 @@ curl -X POST http://localhost:5000/requests \
 
 | Code | When |
 | --- | --- |
-| `400` | malformed body, bad date format, real-calendar check failed, `reason` too short, `days`/`status` sent by client |
-| `400` | `startDate` is after `endDate` |
-| `400` | `startDate` is in the past |
-| `400` | the range contains zero working days |
-| `404` | `Employee not found` |
-| `409` | employee already has a `PENDING` or `APPROVED` request overlapping these dates |
+| `400` | malformed body, bad date, `reason` too short, or any client-supplied `userId` / `days` / `status` |
+| `400` | `startDate` after `endDate`, a past start date, or zero working days |
+| `401` | missing, invalid or expired token |
+| `409` | overlaps an existing `PENDING` or `APPROVED` request for the same user |
 
 ---
 
@@ -145,58 +207,56 @@ curl -X POST http://localhost:5000/requests \
 GET /requests
 ```
 
+* An `EMPLOYEE` receives only their own requests.
+* An `ADMIN` receives all requests and may filter.
+
 ### Query parameters (both optional)
 
 | Parameter | Values |
 | --- | --- |
 | `status` | `PENDING`, `APPROVED`, `REJECTED` (case-insensitive) |
-| `employeeId` | a 24-character ObjectId |
+| `userId` | a 24-character ObjectId — **admin only** |
 
-Unknown query parameters are rejected with `400`.
-
-### Examples
-
-```bash
-curl http://localhost:5000/requests
-curl "http://localhost:5000/requests?status=PENDING"
-curl "http://localhost:5000/requests?employeeId=6abacda7072b490f821f313e"
-curl "http://localhost:5000/requests?status=APPROVED&employeeId=6abacda7072b490f821f313e"
-```
+An employee who passes someone else's `userId` receives `403`; passing their own id
+is allowed and behaves the same as omitting it.
 
 ### `200` response
 
-Results are sorted newest first.
+Results are sorted newest first. An empty result set returns an empty array, not a
+`404`.
 
 ```json
 {
   "success": true,
   "data": [
     {
-      "id": "6abacd3f296d71f2c0b00417",
-      "employee": {
-        "id": "6abacda7072b490f821f313e",
-        "name": "Alice Tester",
-        "annualLeaveBalance": 10
+      "id": "6abc1285dc54d57107daa61f",
+      "user": {
+        "id": "6abc1275dc54d57107daa61b",
+        "name": "Employee One",
+        "email": "emp@example.com",
+        "role": "EMPLOYEE",
+        "annualLeaveBalance": 20
       },
       "startDate": "2026-10-05",
       "endDate": "2026-10-09",
-      "reason": "Family trip",
+      "reason": "Family event",
       "days": 5,
       "status": "PENDING",
-      "createdAt": "2026-09-29T10:15:00.000Z",
-      "updatedAt": "2026-09-29T10:15:00.000Z"
+      "createdAt": "2026-09-29T12:00:00.000Z",
+      "updatedAt": "2026-09-29T12:00:00.000Z"
     }
   ]
 }
 ```
 
-No matches returns an empty array, not a `404`.
-
 ### Errors
 
 | Code | When |
 | --- | --- |
-| `400` | unknown query parameter, invalid `status`, malformed `employeeId` |
+| `400` | unknown query parameter, invalid `status`, malformed `userId` |
+| `401` | missing, invalid or expired token |
+| `403` | an employee asked for another user's requests |
 
 ---
 
@@ -206,44 +266,18 @@ No matches returns an empty array, not a `404`.
 PATCH /requests/:id
 ```
 
+**Admin only.** An employee receives `403`.
+
 ### Request body
 
-| Field | Type | Required | Values |
-| --- | --- | --- | --- |
-| `status` | string | yes | `APPROVED` or `REJECTED` |
-
-### Example
-
-```bash
-curl -X PATCH http://localhost:5000/requests/6abacd3f296d71f2c0b00417 \
-  -H 'Content-Type: application/json' \
-  -d '{ "status": "APPROVED" }'
+```json
+{ "status": "APPROVED" }
 ```
 
-### `200` response
-
-Same object shape as create, with the updated `status` and the employee's
-resulting `annualLeaveBalance`.
+or
 
 ```json
-{
-  "success": true,
-  "data": {
-    "id": "6abacd3f296d71f2c0b00417",
-    "employee": {
-      "id": "6abacda7072b490f821f313e",
-      "name": "Alice Tester",
-      "annualLeaveBalance": 5
-    },
-    "startDate": "2026-10-05",
-    "endDate": "2026-10-09",
-    "reason": "Family trip",
-    "days": 5,
-    "status": "APPROVED",
-    "createdAt": "2026-09-29T10:15:00.000Z",
-    "updatedAt": "2026-09-29T11:02:00.000Z"
-  }
-}
+{ "status": "REJECTED" }
 ```
 
 ### State transitions
@@ -260,61 +294,100 @@ resulting `annualLeaveBalance`.
 
 | Code | When |
 | --- | --- |
-| `400` | `:id` is not a valid ObjectId, or `status` is not `APPROVED`/`REJECTED` |
+| `400` | `:id` malformed, or `status` is not `APPROVED`/`REJECTED` |
+| `401` | missing, invalid or expired token |
+| `403` | caller is not an admin |
 | `404` | `Leave request not found` |
 | `409` | only `PENDING` requests can be approved |
-| `409` | `Insufficient leave balance` — approving would push the balance below zero |
-| `409` | a `REJECTED` request cannot change status |
+| `409` | `Insufficient leave balance` — approval would push the balance below zero |
 
 ### Concurrency
 
 The balance update and the status update run inside a **MongoDB transaction**, so
 they commit or roll back together. The deduction is also guarded by an atomic
 `annualLeaveBalance >= days` condition, so parallel approvals can never drive a
-balance negative. The first succeeds and the rest get `409`.
+balance negative. Verified: three simultaneous approvals against a balance of 5 and
+three 5-day requests produce exactly one `200` and two `409`, with the balance
+landing at 0.
 
 > **Requires a replica set.** MongoDB transactions are not supported on a standalone
 > `mongod`. The bundled `docker-compose.yml` starts MongoDB as a single-node
-> replica set and initialises it automatically, so `PATCH /requests/:id` works
-> out of the box. See [Running with transactions](#running-with-transactions).
+> replica set and initialises it automatically. See
+> [Running with transactions](#running-with-transactions).
 
 ---
 
-# Employee endpoints
+# User endpoints
 
-## 4. Reassign annual leave
+## 4. Get the signed-in user
 
 ```
-POST /employees/reassign-annual-leave
+GET /users/me
 ```
 
-Adds a number of days to the leave balance of **every** employee.
+Any authenticated user. This is how a client reads its own leave balance.
 
-> **This is a bulk operation, not a per-employee one.** Despite the name, it takes no
-> employee identifier — `number` is applied to all employees in the collection. There
-> is no way to target a single employee.
+```json
+{
+  "success": true,
+  "data": {
+    "id": "6abc1275dc54d57107daa61b",
+    "name": "Employee One",
+    "email": "emp@example.com",
+    "role": "EMPLOYEE",
+    "annualLeaveBalance": 15
+  }
+}
+```
+
+## 5. List users
+
+```
+GET /users
+```
+
+**Admin only.** `passwordHash` is never included.
+
+## 6. Get one user
+
+```
+GET /users/:id
+```
+
+**Admin only.** Returns `400` for a malformed id and `404` when the user does not
+exist.
+
+## 7. Reassign annual leave
+
+```
+POST /users/reassign-annual-leave
+```
+
+**Admin only.** Adds a signed number of days to the balance of **every** user.
+
+> This is a bulk operation, not a per-user one. It takes no user identifier, and
+> there is no way to target a single user.
 
 ### Request body
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `number` | number | yes | Signed days to add. Positive grants leave, negative removes it. |
+| `number` | integer | yes | Signed whole days to add. Positive grants leave, negative removes it. |
 
 ```bash
-curl -X POST http://localhost:5000/employees/reassign-annual-leave \
+curl -X POST http://localhost:5000/users/reassign-annual-leave \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{ "number": 5 }'
 ```
 
 ### `200` response
 
-Note that this endpoint returns a `message` and **no `data` field**, unlike every
-other endpoint in the API:
-
 ```json
 {
   "success": true,
-  "message": "Annual leave reassigned successfully"
+  "message": "Annual leave reassigned successfully",
+  "data": { "updated": 3 }
 }
 ```
 
@@ -322,31 +395,43 @@ other endpoint in the API:
 
 | Code | When |
 | --- | --- |
-| `500` | the balance could not be written — see the warnings below |
+| `400` | `number` is not a number, is not a whole number, is zero, or would leave any user negative |
+| `401` | missing, invalid or expired token |
+| `403` | caller is not an admin |
 
-### ⚠️ Known defects
+The input is validated here rather than by a Zod schema, so the checks are strict:
+a quoted `"7"` is rejected rather than coerced, and an operation that would drive
+any user below zero is refused outright instead of clamping.
 
-This endpoint is **not validated and not transactional**. Verified behaviour:
+---
 
-| Input | Actual result |
-| --- | --- |
-| `{"number": 5}` | Works. Every balance increases by 5. |
-| `{"number": -30}` | `500`. Caught by the model's `min: 0` validator, so no data is written. |
-| `{"number": "7"}` | **`200` — silently corrupts data.** A string is accepted and JavaScript concatenates it, turning a balance of `25` into `"257"`. |
-| `{}` | `500`, with a raw Mongoose error leaked to the client: `Employee validation failed: annualLeaveBalance: Cast to Number failed for value "NaN"`. |
+# Seeding the first admin
 
-Consequences worth knowing before calling it:
+There is no public registration endpoint. The initial admin is created from
+environment variables:
 
-- **Send a JSON number, never a quoted string.** A string is not rejected; it
-  permanently corrupts the stored balance and there is no undo.
-- **No partial-failure protection.** Each employee is saved in a separate loop
-  iteration, so a failure part-way through leaves earlier employees already
-  updated.
-- **The success response omits `data`,** so a client that reads `response.data`
-  will get `undefined`.
+```bash
+npm run seed
+```
 
-Adding a Zod schema for the body and wrapping the loop in a transaction would close
-all three. Until then, treat this endpoint as development-only.
+The script checks whether the admin already exists and creates it only if it does
+not, so running it repeatedly never produces a duplicate or resets a password that
+was changed later. The password is hashed with bcrypt before storage and is never
+logged.
+
+Configuration (`Backend/.env`):
+
+```env
+ADMIN_NAME=System Admin
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=change-me
+```
+
+Running the seed inside Docker:
+
+```bash
+docker compose exec backend npm run seed
+```
 
 ---
 
@@ -356,7 +441,7 @@ all three. Until then, treat this endpoint as development-only.
 GET /health
 ```
 
-Not part of the response format above — it predates it.
+Public. Not part of the response format above — it predates it.
 
 ```json
 { "status": "ok" }
@@ -392,9 +477,8 @@ provides one — nothing to set up by hand:
       - "try { rs.status() } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongodb:27017'}]}) }"
 ```
 
-`mongodb-init` runs `rs.initiate()` the first time and exits; `rs.status()` succeeds on
-later runs, so it becomes a no-op. `restart: on-failure` covers the brief window where
-MongoDB is not accepting connections yet. The state lives in the `mongodb_data` volume,
+`mongodb-init` runs `rs.initiate()` the first time and exits; `rs.status()` succeeds
+on later runs, so it becomes a no-op. The state lives in the `mongodb_data` volume,
 so `docker compose down` keeps it and only `docker compose down -v` forces a
 re-initialisation.
 
@@ -406,5 +490,22 @@ docker compose exec mongodb mongosh --quiet --eval 'print(rs.status().myState)'
 ```
 
 The backend connects with `mongodb://mongodb:27017/team-time-off-tracker` as
-configured, and retries on startup until the set is ready. `POST` and `GET` work
-without a replica set; only `PATCH` needs it.
+configured. Read-only endpoints work without a replica set; only `PATCH /requests/:id`
+needs it.
+
+---
+
+# Required environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `MONGODB_URI` | yes | MongoDB connection string |
+| `JWT_SECRET` | yes | Token signing key, minimum 32 characters |
+| `PORT` | no | Defaults to `5000` |
+| `JWT_EXPIRES_IN` | no | Any `jsonwebtoken` duration, defaults to `1h` |
+| `ADMIN_NAME` | no | Used by the seed |
+| `ADMIN_EMAIL` | no | Used by the seed |
+| `ADMIN_PASSWORD` | no | Used by the seed, minimum 8 characters |
+
+`MONGODB_URI` and `JWT_SECRET` are validated at startup and the process exits with
+a clear message if either is missing. There is no hardcoded fallback secret.
