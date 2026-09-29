@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 
+import { getAuthUser } from '../middleware/auth';
 import {
   createRequestSchema,
   listRequestsQuerySchema,
@@ -41,7 +42,9 @@ export async function createRequest(
 ): Promise<void> {
   try {
     const input = createRequestSchema.parse(req.body);
-    const data = await requestService.createRequest(input);
+    // Identity comes from the verified token, never from the body.
+    const { id } = getAuthUser(req);
+    const data = await requestService.createRequest(input, id);
     res.status(201).json({ success: true, data });
   } catch (err) {
     next(err);
@@ -55,7 +58,7 @@ export async function getRequests(
 ): Promise<void> {
   try {
     const query = listRequestsQuerySchema.parse(req.query);
-    const data = await requestService.getRequests(query);
+    const data = await requestService.getRequests(query, getAuthUser(req));
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);

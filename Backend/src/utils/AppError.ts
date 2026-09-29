@@ -21,5 +21,11 @@ export const notFound = (message: string): AppError =>
 export const conflict = (message: string): AppError =>
   new AppError(message, 409);
 
+export const unauthorized = (message: string): AppError =>
+  new AppError(message, 401);
+
+export const forbidden = (message: string): AppError =>
+  new AppError(message, 403);
+
 export const isAppError = (err: unknown): err is AppError =>
   err instanceof AppError;

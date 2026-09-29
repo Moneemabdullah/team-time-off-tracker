@@ -1,102 +1,38 @@
 /**
  * @openapi
  * components:
- *   schemas:
- *     SuccessResponse:
- *       type: object
- *       properties:
- *         success: { type: boolean, example: true }
- *         data: { type: object }
- *     ErrorResponse:
- *       type: object
- *       properties:
- *         success: { type: boolean, example: false }
- *         message: { type: string, example: Employee not found }
- *     RequestStatus:
- *       type: string
- *       enum: [PENDING, APPROVED, REJECTED]
- *       example: PENDING
- *     Employee:
- *       type: object
- *       properties:
- *         id: { type: string, example: 6abacda7072b490f821f313e }
- *         name: { type: string, example: Moneem Abdullah }
- *         email: { type: string, format: email, example: moneem@example.com }
- *         annualLeaveBalance:
- *           type: integer
- *           description: Server-managed. Starts at 20 and changes on approval or rejection.
- *           example: 20
- *         createdAt: { type: string, format: date-time }
- *         updatedAt: { type: string, format: date-time }
- *     CreateEmployeeBody:
- *       type: object
- *       required: [name, email]
- *       properties:
- *         name: { type: string, minLength: 3, example: Moneem Abdullah }
- *         email: { type: string, format: email, example: moneem@example.com }
- *     ReassignAnnualLeaveBody:
- *       type: object
- *       required: [number]
- *       properties:
- *         number:
- *           type: number
- *           description: >
- *             Signed number of days added to every employee balance. This
- *             endpoint is not validated, so a non-numeric value is not rejected.
- *           example: 5
- *     CreateRequestBody:
- *       type: object
- *       required: [name, email, startDate, endDate, reason]
- *       properties:
- *         name: { type: string, minLength: 3, example: Moneem Abdullah }
- *         email: { type: string, format: email, example: moneem@example.com }
- *         startDate: { type: string, example: "2026-10-05" }
- *         endDate: { type: string, example: "2026-10-09" }
- *         reason: { type: string, minLength: 3, example: Family event }
- *     UpdateRequestStatusBody:
- *       type: object
- *       required: [status]
- *       properties:
- *         status: { type: string, enum: [APPROVED, REJECTED], example: APPROVED }
- *     LeaveRequest:
- *       type: object
- *       properties:
- *         id: { type: string, example: 6abacd3f296d71f2c0b00417 }
- *         employee: { $ref: "#/components/schemas/Employee" }
- *         startDate: { type: string, example: "2026-10-05" }
- *         endDate: { type: string, example: "2026-10-09" }
- *         reason: { type: string, example: Family trip }
- *         days:
- *           type: integer
- *           description: Working days (Mon-Fri) counted by the server.
- *           example: 5
- *         status: { $ref: "#/components/schemas/RequestStatus" }
- *         createdAt: { type: string, format: date-time }
- *         updatedAt: { type: string, format: date-time }
+ *   securitySchemes:
+ *     bearerAuth:
+ *       type: http
+ *       scheme: bearer
+ *       bearerFormat: JWT
+ *       description: Paste the `token` returned by `POST /auth/login`.
  */
 
 /**
  * @openapi
- * /employees:
+ * /auth/login:
  *   post:
- *     tags: [Employees]
- *     summary: Create an employee
+ *     tags: [Auth]
+ *     summary: Exchange credentials for a JWT
+ *     security: []
  *     description: >
- *       Creates an employee with a leave balance of 20. The balance is
- *       server-managed and cannot be supplied or modified by the client.
- *       Email must be unique.
+ *       The only route that does not require a token. Returns a signed JWT and
+ *       the authenticated user. An unknown email and a wrong password produce
+ *       the same `401` so the endpoint cannot be used to discover accounts.
+ *       Use the **Authorize** button with the returned token to call the other routes.
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             $ref: "#/components/schemas/CreateEmployeeBody"
+ *             $ref: "#/components/schemas/LoginBody"
  *           example:
- *             name: Moneem Abdullah
- *             email: moneem@example.com
+ *             email: admin@example.com
+ *             password: admin123
  *     responses:
- *       "201":
- *         description: Employee created
+ *       "200":
+ *         description: Authenticated
  *         content:
  *           application/json:
  *             schema:
@@ -104,23 +40,58 @@
  *                 - $ref: "#/components/schemas/SuccessResponse"
  *                 - type: object
  *                   properties:
- *                     data: { $ref: "#/components/schemas/Employee" }
+ *                     data: { $ref: "#/components/schemas/LoginResponse" }
  *       "400":
- *         description: Invalid input, or a balance field was sent by the client
+ *         description: Malformed body
  *         content:
  *           application/json:
  *             schema: { $ref: "#/components/schemas/ErrorResponse" }
- *       "409":
- *         description: Email already in use
+ *       "401":
+ *         description: Invalid email or password
  *         content:
  *           application/json:
- *             schema: { $ref: "#/components/schemas/ErrorResponse" }
+ *             schema: { $ref: "#/components/schemas/UnauthorizedResponse" }
+ */
+
+/**
+ * @openapi
+ * /users/me:
  *   get:
- *     tags: [Employees]
- *     summary: List all employees
+ *     tags: [Users]
+ *     summary: Get the signed-in user
+ *     description: Lets any authenticated user read their own profile and leave balance.
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       "200":
- *         description: Employees, newest first
+ *         description: The authenticated user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: "#/components/schemas/SuccessResponse"
+ *                 - type: object
+ *                   properties:
+ *                     data: { $ref: "#/components/schemas/User" }
+ *       "401":
+ *         description: Missing, invalid or expired token
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/UnauthorizedResponse" }
+ */
+
+/**
+ * @openapi
+ * /users:
+ *   get:
+ *     tags: [Users]
+ *     summary: List users
+ *     description: Admin only. `passwordHash` is never included.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       "200":
+ *         description: Users, newest first
  *         content:
  *           application/json:
  *             schema:
@@ -130,24 +101,81 @@
  *                   properties:
  *                     data:
  *                       type: array
- *                       items: { $ref: "#/components/schemas/Employee" }
+ *                       items: { $ref: "#/components/schemas/User" }
+ *       "401":
+ *         description: Missing, invalid or expired token
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/UnauthorizedResponse" }
+ *       "403":
+ *         description: Authenticated but not an admin
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/ForbiddenResponse" }
  */
 
 /**
  * @openapi
- * /employees/reassign-annual-leave:
+ * /users/{id}:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get one user
+ *     description: Admin only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: User ObjectId
+ *         example: 6abacda7072b490f821f313e
+ *     responses:
+ *       "200":
+ *         description: The user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: "#/components/schemas/SuccessResponse"
+ *                 - type: object
+ *                   properties:
+ *                     data: { $ref: "#/components/schemas/User" }
+ *       "400":
+ *         description: Malformed id
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/ErrorResponse" }
+ *       "401":
+ *         description: Missing, invalid or expired token
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/UnauthorizedResponse" }
+ *       "403":
+ *         description: Authenticated but not an admin
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/ForbiddenResponse" }
+ *       "404":
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/ErrorResponse" }
+ */
+
+/**
+ * @openapi
+ * /users/reassign-annual-leave:
  *   post:
- *     tags: [Employees]
- *     summary: Add a number of days to every employee's leave balance
+ *     tags: [Users]
+ *     summary: Add a number of days to every user's leave balance
  *     description: >
- *       Bulk operation: `number` is added to the leave balance of **every**
- *       employee, not to a single one. A positive value grants leave and a
- *       negative value removes it. There is no per-employee targeting.
- *
- *       The body is not validated. A non-numeric `number` is accepted and
- *       corrupts the stored balance, and an out-of-range or missing value
- *       surfaces as a 500. No transaction is used, so a failure part-way
- *       through leaves the balances partially applied.
+ *       Admin only. Bulk operation: `number` is applied to every user, with no
+ *       per-user targeting. A positive value grants leave and a negative value
+ *       removes it. The request is rejected outright if the change would leave
+ *       any user with a negative balance.
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -158,41 +186,7 @@
  *             number: 5
  *     responses:
  *       "200":
- *         description: >
- *           Balances updated. Note the response carries a `message` and no
- *           `data` field, unlike every other endpoint.
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean, example: true }
- *                 message: { type: string, example: Annual leave reassigned successfully }
- *       "500":
- *         description: >
- *           Balance could not be written, for example a negative result or a
- *           missing/non-numeric `number`
- *         content:
- *           application/json:
- *             schema: { $ref: "#/components/schemas/ErrorResponse" }
- */
-
-/**
- * @openapi
- * /employees/{id}:
- *   get:
- *     tags: [Employees]
- *     summary: Get one employee
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *         description: Employee ObjectId
- *         example: 6abacda7072b490f821f313e
- *     responses:
- *       "200":
- *         description: The employee
+ *         description: Balances updated
  *         content:
  *           application/json:
  *             schema:
@@ -200,17 +194,28 @@
  *                 - $ref: "#/components/schemas/SuccessResponse"
  *                 - type: object
  *                   properties:
- *                     data: { $ref: "#/components/schemas/Employee" }
+ *                     message: { type: string, example: Annual leave reassigned successfully }
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         updated: { type: integer, example: 3 }
  *       "400":
- *         description: Malformed id
+ *         description: >
+ *           `number` missing, not a whole number, zero, or would leave a user
+ *           with a negative balance
  *         content:
  *           application/json:
  *             schema: { $ref: "#/components/schemas/ErrorResponse" }
- *       "404":
- *         description: Employee not found
+ *       "401":
+ *         description: Missing, invalid or expired token
  *         content:
  *           application/json:
- *             schema: { $ref: "#/components/schemas/ErrorResponse" }
+ *             schema: { $ref: "#/components/schemas/UnauthorizedResponse" }
+ *       "403":
+ *         description: Authenticated but not an admin
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/ForbiddenResponse" }
  */
 
 /**
@@ -220,13 +225,13 @@
  *     tags: [Requests]
  *     summary: Create a leave request
  *     description: >
- *       The employee is identified by name and email. An email that does not
- *       exist yet creates the employee with the default leave balance; a known
- *       email reuses the existing record without changing its name or balance.
- *       The request always starts as PENDING and does not touch the balance.
- *       Only Monday-Friday count as leave days, so a weekend-only range is
- *       rejected. Past dates and ranges overlapping an existing PENDING or
- *       APPROVED request for the same employee are rejected.
+ *       The request is attributed to the user in the bearer token; the body
+ *       cannot choose the owner. Always starts as PENDING and does not touch
+ *       the balance. Only Monday-Friday count as leave days, so a weekend-only
+ *       range is rejected. Past dates and ranges overlapping an existing PENDING
+ *       or APPROVED request for the same user are rejected.
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -234,8 +239,6 @@
  *           schema:
  *             $ref: "#/components/schemas/CreateRequestBody"
  *           example:
- *             name: Moneem Abdullah
- *             email: moneem@example.com
  *             startDate: "2026-10-05"
  *             endDate: "2026-10-09"
  *             reason: Family event
@@ -252,11 +255,16 @@
  *                     data: { $ref: "#/components/schemas/LeaveRequest" }
  *       "400":
  *         description: >
- *           Invalid input, startDate after endDate, a past start date, or a
- *           range containing zero working days
+ *           Invalid input, startDate after endDate, a past start date, or a range
+ *           containing zero working days
  *         content:
  *           application/json:
  *             schema: { $ref: "#/components/schemas/ErrorResponse" }
+ *       "401":
+ *         description: Missing, invalid or expired token
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/UnauthorizedResponse" }
  *       "409":
  *         description: Overlapping pending or approved request
  *         content:
@@ -265,6 +273,11 @@
  *   get:
  *     tags: [Requests]
  *     summary: List leave requests
+ *     description: >
+ *       An `EMPLOYEE` only ever receives their own requests; passing another
+ *       `userId` returns `403`. An `ADMIN` receives all requests and may filter.
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: status
@@ -272,10 +285,10 @@
  *         schema: { $ref: "#/components/schemas/RequestStatus" }
  *         description: Filter by status
  *       - in: query
- *         name: employeeId
+ *         name: userId
  *         required: false
  *         schema: { type: string }
- *         description: Filter by employee ObjectId
+ *         description: Filter by user. Admin only; employees are scoped to themselves.
  *         example: 6abacda7072b490f821f313e
  *     responses:
  *       "200":
@@ -291,10 +304,20 @@
  *                       type: array
  *                       items: { $ref: "#/components/schemas/LeaveRequest" }
  *       "400":
- *         description: Unknown query parameter, invalid status, or malformed employeeId
+ *         description: Unknown query parameter, invalid status, or malformed userId
  *         content:
  *           application/json:
  *             schema: { $ref: "#/components/schemas/ErrorResponse" }
+ *       "401":
+ *         description: Missing, invalid or expired token
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/UnauthorizedResponse" }
+ *       "403":
+ *         description: Employee attempted to read another user's requests
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/ForbiddenResponse" }
  */
 
 /**
@@ -304,13 +327,15 @@
  *     tags: [Requests]
  *     summary: Approve or reject a request
  *     description: >
- *       PENDING to APPROVED deducts the working days from the balance.
- *       PENDING to REJECTED changes nothing. APPROVED to REJECTED restores
- *       the deducted days. A REJECTED request is terminal. The balance change
- *       and the status change are applied in a single transaction, and the
+ *       Admin only. PENDING to APPROVED deducts the working days from the
+ *       balance. PENDING to REJECTED changes nothing. APPROVED to REJECTED
+ *       restores the deducted days. A REJECTED request is terminal. The balance
+ *       change and the status change are applied in a single transaction, and the
  *       balance can never be driven negative by concurrent approvals.
  *       Requires MongoDB running as a replica set; the bundled docker-compose.yml
  *       provides a single-node replica set automatically.
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -342,6 +367,16 @@
  *         content:
  *           application/json:
  *             schema: { $ref: "#/components/schemas/ErrorResponse" }
+ *       "401":
+ *         description: Missing, invalid or expired token
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/UnauthorizedResponse" }
+ *       "403":
+ *         description: Authenticated but not an admin
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/ForbiddenResponse" }
  *       "404":
  *         description: Request not found
  *         content:
@@ -349,8 +384,8 @@
  *             schema: { $ref: "#/components/schemas/ErrorResponse" }
  *       "409":
  *         description: >
- *           Not pending, insufficient leave balance, or the request was
- *           already rejected
+ *           Not pending, insufficient leave balance, or the request was already
+ *           rejected
  *         content:
  *           application/json:
  *             schema: { $ref: "#/components/schemas/ErrorResponse" }

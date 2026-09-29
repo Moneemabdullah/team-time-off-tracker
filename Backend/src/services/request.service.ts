@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-import { employeeModel } from '../models/employee.model';
+import { userModel, type UserRole } from '../models/user.model';
 import { timeOffRequestModel } from '../models/timeOffRequest.model';
 import {
   type CreateRequestInput,
@@ -8,33 +8,32 @@ import {
   type RequestStatus,
   type UpdateRequestStatusInput,
 } from '../schemas/request.schema';
-import { badRequest, conflict, notFound } from '../utils/AppError';
+import { badRequest, conflict, forbidden, notFound } from '../utils/AppError';
 import { countWeekdays, parseDateOnly, todayDateOnly, toDateOnlyString } from '../utils/date';
 
-/** A request in one of these states blocks the employee's calendar. */
+/** A request in one of these states blocks the user's calendar. */
 const BLOCKING_STATUSES: RequestStatus[] = ['pending', 'approved'];
 
-const EMPLOYEE_FIELDS = 'name email annualLeaveBalance';
+const USER_FIELDS = 'name email role annualLeaveBalance';
 
-type PopulatedEmployee = {
+type PopulatedUser = {
   _id: mongoose.Types.ObjectId;
   name: string;
   email: string;
+  role: UserRole;
   annualLeaveBalance: number;
 };
 
-type EmployeeRef = mongoose.Types.ObjectId | PopulatedEmployee | null;
+type UserRef = mongoose.Types.ObjectId | PopulatedUser | null;
 
-function isPopulatedEmployee(value: EmployeeRef): value is PopulatedEmployee {
+function isPopulatedUser(value: UserRef): value is PopulatedUser {
   return typeof value === 'object' && value !== null && '_id' in value;
 }
 
 type PopulatedRequest = NonNullable<Awaited<ReturnType<typeof findPopulated>>>;
 
 async function findPopulated(id: mongoose.Types.ObjectId) {
-  const request = await timeOffRequestModel
-    .findById(id)
-    .populate('employee', EMPLOYEE_FIELDS);
+  const request = await timeOffRequestModel.findById(id).populate('user', USER_FIELDS);
 
   if (!request) {
     throw notFound('Leave request not found');
@@ -47,7 +46,7 @@ async function findPopulated(id: mongoose.Types.ObjectId) {
 function toResponse(request: PopulatedRequest): Record<string, unknown> {
   const doc = request as unknown as {
     _id: mongoose.Types.ObjectId;
-    employee: EmployeeRef;
+    user: UserRef;
     startDate: Date;
     endDate: Date;
     reason: string;
@@ -57,18 +56,19 @@ function toResponse(request: PopulatedRequest): Record<string, unknown> {
     updatedAt?: Date;
   };
 
-  const employee = doc.employee;
+  const user = doc.user;
 
   return {
     id: doc._id.toString(),
-    employee: isPopulatedEmployee(employee)
+    user: isPopulatedUser(user)
       ? {
-          id: employee._id.toString(),
-          name: employee.name,
-          email: employee.email,
-          annualLeaveBalance: employee.annualLeaveBalance,
+          id: user._id.toString(),
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          annualLeaveBalance: user.annualLeaveBalance,
         }
-      : { id: String(employee) },
+      : { id: String(user) },
     startDate: toDateOnlyString(new Date(doc.startDate)),
     endDate: toDateOnlyString(new Date(doc.endDate)),
     reason: doc.reason,
@@ -79,32 +79,7 @@ function toResponse(request: PopulatedRequest): Record<string, unknown> {
   };
 }
 
-/**
- * Identifies the employee by email. An unknown email registers a new employee;
- * a known one is reused exactly as it is, so neither the name nor the leave
- * balance is ever overwritten. The balance itself comes from the model default.
- */
-async function findOrCreateEmployee(input: CreateRequestInput) {
-  const existing = await employeeModel.findOne({ email: input.email });
-  if (existing) {
-    return existing;
-  }
-
-  try {
-    return await employeeModel.create({ name: input.name, email: input.email });
-  } catch (err) {
-    // The unique index on email is the real guard. If a concurrent submission
-    // created the same employee first, fall back to that record.
-    const isDuplicateEmail = (err as { code?: number } | null)?.code === 11000;
-    if (isDuplicateEmail) {
-      const winner = await employeeModel.findOne({ email: input.email });
-      if (winner) return winner;
-    }
-    throw err;
-  }
-}
-
-export async function createRequest(input: CreateRequestInput) {
+export async function createRequest(input: CreateRequestInput, userId: string) {
   const startDate = parseDateOnly(input.startDate);
   const endDate = parseDateOnly(input.endDate);
 
@@ -121,10 +96,8 @@ export async function createRequest(input: CreateRequestInput) {
     throw badRequest('Leave request must span at least one working day (Mon-Fri)');
   }
 
-  const employee = await findOrCreateEmployee(input);
-
   const overlapping = await timeOffRequestModel.exists({
-    employee: employee._id,
+    user: userId,
     status: { $in: BLOCKING_STATUSES },
     startDate: { $lte: endDate },
     endDate: { $gte: startDate },
@@ -135,7 +108,7 @@ export async function createRequest(input: CreateRequestInput) {
   }
 
   const created = await timeOffRequestModel.create({
-    employee: employee._id,
+    user: userId,
     startDate,
     endDate,
     reason: input.reason,
@@ -146,15 +119,24 @@ export async function createRequest(input: CreateRequestInput) {
   return toResponse(await findPopulated(created._id));
 }
 
-export async function getRequests(query: ListRequestsQuery) {
+/** Employees are always scoped to their own requests; admins may filter. */
+export async function getRequests(query: ListRequestsQuery, authUser: { id: string; role: UserRole }) {
   const filter: Record<string, unknown> = {};
 
   if (query.status) filter.status = query.status;
-  if (query.employeeId) filter.employee = query.employeeId;
+
+  if (authUser.role === 'ADMIN') {
+    if (query.userId) filter.user = query.userId;
+  } else {
+    if (query.userId && query.userId !== authUser.id) {
+      throw forbidden('You can only view your own leave requests');
+    }
+    filter.user = authUser.id;
+  }
 
   const requests = await timeOffRequestModel
     .find(filter)
-    .populate('employee', EMPLOYEE_FIELDS)
+    .populate('user', USER_FIELDS)
     .sort({ createdAt: -1 });
 
   return requests.map((request) => toResponse(request));
@@ -172,9 +154,6 @@ export async function updateRequestStatus(
   const session = await mongoose.startSession();
 
   try {
-    let updatedId: mongoose.Types.ObjectId | undefined;
-
-    // The balance change and the status change commit or roll back together.
     await session.withTransaction(async () => {
       const request = await timeOffRequestModel.findById(objectId).session(session);
       if (!request) {
@@ -189,9 +168,9 @@ export async function updateRequestStatus(
         }
 
         // The `$gte` guard makes the check-and-decrement atomic, so parallel
-        // approvals can never drive the balance below zero.
-        const deducted = await employeeModel.updateOne(
-          { _id: request.employee, annualLeaveBalance: { $gte: request.days } },
+        // approvals can never drive a balance negative.
+        const deducted = await userModel.updateOne(
+          { _id: request.user, annualLeaveBalance: { $gte: request.days } },
           { $inc: { annualLeaveBalance: -request.days } },
           { session }
         );
@@ -206,8 +185,8 @@ export async function updateRequestStatus(
         request.status = 'rejected';
       } else if (currentStatus === 'approved') {
         // Give the deducted days back.
-        await employeeModel.updateOne(
-          { _id: request.employee },
+        await userModel.updateOne(
+          { _id: request.user },
           { $inc: { annualLeaveBalance: request.days } },
           { session }
         );
@@ -217,7 +196,6 @@ export async function updateRequestStatus(
       }
 
       await request.save({ session });
-      updatedId = request._id;
     });
 
     return toResponse(await findPopulated(objectId));

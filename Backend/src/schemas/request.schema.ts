@@ -25,14 +25,12 @@ const dateOnly = z
   .refine(isValidDateOnly, 'Must be a real calendar date in YYYY-MM-DD format');
 
 /**
- * The employee is identified by `name` + `email` rather than an id, so a request
- * can be submitted for someone who does not exist yet. `days` and `status` are
- * intentionally absent, and `.strict()` rejects them.
+ * The submitting user comes from the JWT, never the body, so only the leave
+ * details are accepted here. `days`, `status` and `userId` are intentionally
+ * absent, and `.strict()` rejects them.
  */
 export const createRequestSchema = z
   .object({
-    name: z.string().trim().min(3, 'Name must be at least 3 characters long'),
-    email: z.string().trim().toLowerCase().email('Must be a valid email address'),
     startDate: dateOnly,
     endDate: dateOnly,
     reason: z.string().trim().min(3, 'Reason must be at least 3 characters long'),
@@ -49,7 +47,8 @@ export const listRequestsQuerySchema = z
       )
       .transform(toStoredStatus)
       .optional(),
-    employeeId: objectId.optional(),
+    /** Only honoured for admins; employees are always scoped to themselves. */
+    userId: objectId.optional(),
   })
   .strict();
 

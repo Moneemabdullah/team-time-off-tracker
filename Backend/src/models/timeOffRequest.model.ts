@@ -2,10 +2,10 @@ import mongoose from "mongoose";
 
 const timeOffRequestSchema = new mongoose.Schema(
   {
-    employee: {
+    user: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Employee",
-      required: [true, "Employee is required"],
+      ref: "User",
+      required: [true, "User is required"],
     },
 
     startDate: {
