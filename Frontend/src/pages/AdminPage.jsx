@@ -19,6 +19,7 @@ const reassignSchema = z.coerce
 
 function AdminPage() {
   const [requests, setRequests] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -36,11 +37,15 @@ function AdminPage() {
         if (statusFilter) params.append('status', statusFilter);
 
         const qs = params.toString() ? `?${params.toString()}` : '';
-        const reqs = await apiRequest(`/requests${qs}`);
+        const [reqs, emps] = await Promise.all([
+          apiRequest(`/requests${qs}`),
+          apiRequest('/employees'),
+        ]);
         console.log('Fetched requests:', reqs);
 
         if (!cancelled) {
           setRequests(reqs);
+          setEmployees(emps);
         }
       } catch (err) {
         if (!cancelled) setError(err.message || 'Failed to load data');
@@ -54,6 +59,15 @@ function AdminPage() {
     };
   }, [statusFilter]);
 
+  async function refreshEmployees() {
+    try {
+      const emps = await apiRequest('/employees');
+      setEmployees(emps);
+    } catch {
+      // keep the current list if the refresh fails
+    }
+  }
+
   async function handleStatusUpdate(id, status) {
     try {
       const updated = await apiRequest(`/requests/${id}`, {
@@ -62,6 +76,7 @@ function AdminPage() {
       });
       setRequests((prev) => prev.map((r) => (r.id === id ? updated : r)));
       toast.success(`Request ${status.toLowerCase()} successfully`);
+      refreshEmployees();
     } catch (err) {
       toast.error(err.message || 'Failed to update status');
     }
@@ -89,6 +104,7 @@ function AdminPage() {
       });
       toast.success('Annual leave reassigned successfully');
       setLeaveNumber('');
+      refreshEmployees();
     } catch (err) {
       toast.error(err.message || 'Failed to reassign annual leave');
     } finally {
@@ -105,38 +121,65 @@ function AdminPage() {
     <div className="mx-auto max-w-6xl px-4 py-10">
       <h1 className="mb-6 text-3xl font-semibold text-gray-900">Admin Dashboard</h1>
 
-      <div className="mb-8 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-lg font-semibold text-gray-900">Filters</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor="statusFilter" className="mb-1 block text-sm font-medium text-gray-700">
-              Filter by Status
-            </label>
-            <select
-              id="statusFilter"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className={INPUT_CLASS}
-            >
-              <option value="">All</option>
-              <option value="PENDING">Pending</option>
-              <option value="APPROVED">Approved</option>
-              <option value="REJECTED">Rejected</option>
-            </select>
-          </div>
+      <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">Employees</h2>
+          {loading && employees.length === 0 && (
+            <p className="text-sm text-gray-500">Loading...</p>
+          )}
+          {!loading && employees.length === 0 && (
+            <p className="text-sm text-gray-500">No employees found</p>
+          )}
+          {employees.length > 0 && (
+            <ul className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
+              {employees.map((emp) => (
+                <li key={emp.id} className="flex items-center justify-between gap-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{emp.name}</p>
+                    <p className="text-xs text-gray-500">{emp.email}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
+                    {emp.annualLeaveBalance} days left
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-          <div>
-            <label htmlFor="nameFilter" className="mb-1 block text-sm font-medium text-gray-700">
-              Filter by Name
-            </label>
-            <input
-              id="nameFilter"
-              type="text"
-              placeholder="Search by name..."
-              value={nameFilter}
-              onChange={(e) => setNameFilter(e.target.value)}
-              className={INPUT_CLASS}
-            />
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">Filters</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="statusFilter" className="mb-1 block text-sm font-medium text-gray-700">
+                Filter by Status
+              </label>
+              <select
+                id="statusFilter"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className={INPUT_CLASS}
+              >
+                <option value="">All</option>
+                <option value="PENDING">Pending</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="nameFilter" className="mb-1 block text-sm font-medium text-gray-700">
+                Filter by Name
+              </label>
+              <input
+                id="nameFilter"
+                type="text"
+                placeholder="Search by name..."
+                value={nameFilter}
+                onChange={(e) => setNameFilter(e.target.value)}
+                className={INPUT_CLASS}
+              />
+            </div>
           </div>
         </div>
       </div>
