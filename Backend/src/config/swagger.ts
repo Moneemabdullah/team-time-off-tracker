@@ -65,12 +65,13 @@ const options: swaggerJsdoc.Options = {
         },
         CreateRequestBody: {
           type: 'object',
-          required: ['employeeId', 'startDate', 'endDate', 'reason'],
+          required: ['name', 'email', 'startDate', 'endDate', 'reason'],
           properties: {
-            employeeId: { type: 'string', example: '6abacda7072b490f821f313e' },
+            name: { type: 'string', minLength: 3, example: 'Moneem Abdullah' },
+            email: { type: 'string', format: 'email', example: 'moneem@example.com' },
             startDate: { type: 'string', example: '2026-10-05' },
             endDate: { type: 'string', example: '2026-10-09' },
-            reason: { type: 'string', minLength: 3, example: 'Family trip' },
+            reason: { type: 'string', minLength: 3, example: 'Family event' },
           },
         },
         UpdateRequestStatusBody: {

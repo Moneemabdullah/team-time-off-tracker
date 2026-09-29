@@ -24,10 +24,15 @@ const dateOnly = z
   .string()
   .refine(isValidDateOnly, 'Must be a real calendar date in YYYY-MM-DD format');
 
-/** `status` and `days` are intentionally absent, and `.strict()` rejects them. */
+/**
+ * The employee is identified by `name` + `email` rather than an id, so a request
+ * can be submitted for someone who does not exist yet. `days` and `status` are
+ * intentionally absent, and `.strict()` rejects them.
+ */
 export const createRequestSchema = z
   .object({
-    employeeId: objectId,
+    name: z.string().trim().min(3, 'Name must be at least 3 characters long'),
+    email: z.string().trim().toLowerCase().email('Must be a valid email address'),
     startDate: dateOnly,
     endDate: dateOnly,
     reason: z.string().trim().min(3, 'Reason must be at least 3 characters long'),

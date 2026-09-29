@@ -34,7 +34,7 @@ function sendError(res: Response, err: unknown): void {
   res.status(500).json({ success: false, message });
 }
 
-export async function create(
+export async function createRequest(
   req: Request,
   res: Response,
   next: NextFunction
@@ -48,21 +48,21 @@ export async function create(
   }
 }
 
-export async function list(
+export async function getRequests(
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
     const query = listRequestsQuerySchema.parse(req.query);
-    const data = await requestService.listRequests(query);
+    const data = await requestService.getRequests(query);
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);
   }
 }
 
-export async function updateStatus(
+export async function updateRequestStatus(
   req: Request,
   res: Response,
   next: NextFunction

@@ -36,12 +36,13 @@
  *         email: { type: string, format: email, example: moneem@example.com }
  *     CreateRequestBody:
  *       type: object
- *       required: [employeeId, startDate, endDate, reason]
+ *       required: [name, email, startDate, endDate, reason]
  *       properties:
- *         employeeId: { type: string, example: 6abacda7072b490f821f313e }
+ *         name: { type: string, minLength: 3, example: Moneem Abdullah }
+ *         email: { type: string, format: email, example: moneem@example.com }
  *         startDate: { type: string, example: "2026-10-05" }
  *         endDate: { type: string, example: "2026-10-09" }
- *         reason: { type: string, minLength: 3, example: Family trip }
+ *         reason: { type: string, minLength: 3, example: Family event }
  *     UpdateRequestStatusBody:
  *       type: object
  *       required: [status]
@@ -165,7 +166,10 @@
  *     tags: [Requests]
  *     summary: Create a leave request
  *     description: >
- *       Always starts as PENDING and does not touch the leave balance.
+ *       The employee is identified by name and email. An email that does not
+ *       exist yet creates the employee with the default leave balance; a known
+ *       email reuses the existing record without changing its name or balance.
+ *       The request always starts as PENDING and does not touch the balance.
  *       Only Monday-Friday count as leave days, so a weekend-only range is
  *       rejected. Past dates and ranges overlapping an existing PENDING or
  *       APPROVED request for the same employee are rejected.
@@ -176,10 +180,11 @@
  *           schema:
  *             $ref: "#/components/schemas/CreateRequestBody"
  *           example:
- *             employeeId: 6abacda7072b490f821f313e
+ *             name: Moneem Abdullah
+ *             email: moneem@example.com
  *             startDate: "2026-10-05"
  *             endDate: "2026-10-09"
- *             reason: Family trip
+ *             reason: Family event
  *     responses:
  *       "201":
  *         description: Request created
@@ -195,11 +200,6 @@
  *         description: >
  *           Invalid input, startDate after endDate, a past start date, or a
  *           range containing zero working days
- *         content:
- *           application/json:
- *             schema: { $ref: "#/components/schemas/ErrorResponse" }
- *       "404":
- *         description: Employee not found
  *         content:
  *           application/json:
  *             schema: { $ref: "#/components/schemas/ErrorResponse" }

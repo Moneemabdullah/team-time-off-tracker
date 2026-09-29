@@ -79,6 +79,31 @@ function toResponse(request: PopulatedRequest): Record<string, unknown> {
   };
 }
 
+/**
+ * Identifies the employee by email. An unknown email registers a new employee;
+ * a known one is reused exactly as it is, so neither the name nor the leave
+ * balance is ever overwritten. The balance itself comes from the model default.
+ */
+async function findOrCreateEmployee(input: CreateRequestInput) {
+  const existing = await employeeModel.findOne({ email: input.email });
+  if (existing) {
+    return existing;
+  }
+
+  try {
+    return await employeeModel.create({ name: input.name, email: input.email });
+  } catch (err) {
+    // The unique index on email is the real guard. If a concurrent submission
+    // created the same employee first, fall back to that record.
+    const isDuplicateEmail = (err as { code?: number } | null)?.code === 11000;
+    if (isDuplicateEmail) {
+      const winner = await employeeModel.findOne({ email: input.email });
+      if (winner) return winner;
+    }
+    throw err;
+  }
+}
+
 export async function createRequest(input: CreateRequestInput) {
   const startDate = parseDateOnly(input.startDate);
   const endDate = parseDateOnly(input.endDate);
@@ -96,24 +121,21 @@ export async function createRequest(input: CreateRequestInput) {
     throw badRequest('Leave request must span at least one working day (Mon-Fri)');
   }
 
-  const employee = await employeeModel.findById(input.employeeId);
-  if (!employee) {
-    throw notFound('Employee not found');
-  }
+  const employee = await findOrCreateEmployee(input);
 
   const overlapping = await timeOffRequestModel.exists({
-    employee: input.employeeId,
+    employee: employee._id,
     status: { $in: BLOCKING_STATUSES },
     startDate: { $lte: endDate },
     endDate: { $gte: startDate },
   });
 
   if (overlapping) {
-    throw conflict('Employee already has a pending or approved request for these dates');
+    throw conflict('Overlapping leave request exists');
   }
 
   const created = await timeOffRequestModel.create({
-    employee: input.employeeId,
+    employee: employee._id,
     startDate,
     endDate,
     reason: input.reason,
@@ -124,7 +146,7 @@ export async function createRequest(input: CreateRequestInput) {
   return toResponse(await findPopulated(created._id));
 }
 
-export async function listRequests(query: ListRequestsQuery) {
+export async function getRequests(query: ListRequestsQuery) {
   const filter: Record<string, unknown> = {};
 
   if (query.status) filter.status = query.status;
@@ -163,9 +185,7 @@ export async function updateRequestStatus(
 
       if (input.status === 'APPROVED') {
         if (currentStatus !== 'pending') {
-          throw conflict(
-            `Only pending requests can be approved (current status: ${currentStatus})`
-          );
+          throw conflict('Invalid status transition');
         }
 
         // The `$gte` guard makes the check-and-decrement atomic, so parallel
@@ -193,7 +213,7 @@ export async function updateRequestStatus(
         );
         request.status = 'rejected';
       } else {
-        throw conflict('A rejected request cannot change status');
+        throw conflict('Invalid status transition');
       }
 
       await request.save({ session });
