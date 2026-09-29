@@ -79,3 +79,14 @@ function isDuplicateKeyError(err: unknown): boolean {
     (err as { code?: number }).code === 11000
   );
 }
+
+
+
+
+export async function resassaingAnualLeave(number: number) {
+  const employees = await employeeModel.find();
+  for (const employee of employees) {
+    employee.annualLeaveBalance = number;
+    await employee.save();
+  }
+}
