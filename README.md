@@ -1,0 +1,460 @@
+# Team Time-Off Tracker
+
+A full-stack web application for submitting, reviewing, and approving team time-off
+requests. Employees submit leave requests, and an admin reviews them and approves or
+rejects them against each employee's remaining annual leave balance.
+
+This project was built as an engineering onboarding exercise. The scope was kept
+deliberately small — one employee collection, one leave-request collection, and a
+single approval workflow — to focus on project structure, validation, and correctness
+under concurrency rather than feature breadth.
+
+---
+
+## Features
+
+- **Employee management** — create employees with a unique, lower-cased email address,
+  list them, and fetch one by ID.
+- **Leave request creation** — submit a request for a date range with a reason; it is
+  created in `PENDING` state.
+- **Leave request listing and filtering** — list all requests, optionally filtered by
+  `status` and/or `employeeId`, newest first.
+- **Approve / reject workflow** — move a request from `PENDING` to `APPROVED` or
+  `REJECTED`, with guarded state transitions.
+- **Annual leave balance** — every employee starts with 20 days; approval deducts the
+  request's working days, and reversing an approval restores them.
+- **Weekday-only leave calculation** — leave days are counted server-side as
+  Monday–Friday only; Saturdays and Sundays are excluded.
+- **Overlap validation** — an employee cannot have two overlapping `PENDING` or
+  `APPROVED` requests.
+- **Leave balance validation** — approval is rejected if it would push the balance
+  below zero.
+- **Swagger / OpenAPI documentation** — interactive API reference at `/api-docs`.
+
+---
+
+## Tech Stack
+
+### Backend
+
+| Technology | Role |
+| --- | --- |
+| Node.js 24 | Runtime |
+| TypeScript | Language |
+| Express 4 | HTTP server and routing |
+| MongoDB 7 | Database |
+| Mongoose 8 | ODM |
+| Zod 3 | Request and query validation |
+| CORS | Cross-origin access for the frontend dev server |
+| Swagger UI / swagger-jsdoc | OpenAPI documentation |
+| dotenv | Environment variables |
+| nodemon + tsx | Development server with reload |
+| tsc | Type-check and build to `dist/` |
+
+### Frontend
+
+| Technology | Role |
+| --- | --- |
+| React 19 | UI library |
+| React Router 7 | Client-side routing |
+| Vite 8 | Dev server and build tooling |
+| ESLint 10 | Linting |
+
+### Infrastructure
+
+- Docker and Docker Compose
+- MongoDB 7 running as a **single-node replica set** (`rs0`), which the approval
+  workflow requires for transactions
+
+---
+
+## Project Structure
+
+```text
+team-time-off-tracker/
+├── Backend/
+│   ├── API.md                     # detailed API reference
+│   ├── Dockerfile
+│   ├── .env.example
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── src/
+│       ├── config/
+│       │   ├── db.ts              # Mongoose connection
+│       │   ├── swagger.ts         # OpenAPI definition
+│       │   └── swagger.docs.ts    # JSDoc for all endpoints
+│       ├── controllers/
+│       │   ├── employee.controller.ts
+│       │   └── request.controller.ts
+│       ├── models/
+│       │   ├── employee.model.ts
+│       │   └── timeOffRequest.model.ts
+│       ├── routes/
+│       │   ├── index.ts           # mounts /employees and /requests
+│       │   ├── employee.routes.ts
+│       │   └── request.routes.ts
+│       ├── schemas/
+│       │   ├── employee.schema.ts
+│       │   └── request.schema.ts
+│       ├── services/
+│       │   ├── employee.service.ts
+│       │   └── request.service.ts # business rules + transactions
+│       ├── utils/
+│       │   ├── AppError.ts
+│       │   └── date.ts            # UTC date + weekday calculation
+│       ├── app.ts
+│       └── server.ts
+├── Frontend/
+│   ├── Dockerfile
+│   ├── index.html
+│   ├── vite.config.js
+│   └── src/
+│       ├── main.jsx
+│       ├── App.jsx                # routes
+│       ├── components/
+│       │   └── Navbar.jsx
+│       └── pages/
+│           ├── EmployeePage.jsx   # submit a request
+│           └── AdminPage.jsx      # review and approve/reject
+├── docker-compose.yml
+└── .gitignore
+```
+
+The backend follows a layered structure: **routes → controllers → services → models**.
+Controllers only read the request, call a service, and shape the HTTP response; all
+business rules live in the services.
+
+---
+
+## Prerequisites
+
+- **Node.js 24** — the Dockerfiles use `node:24-alpine`
+- **npm 11**
+- **Docker + Docker Compose** — required if you want to run the stack in containers
+
+You do **not** need a separate MongoDB installation if you use Docker Compose, because
+the compose file provides it. Running the backend directly against a local MongoDB
+requires your own instance.
+
+---
+
+## Installation
+
+### Clone
+
+```bash
+git clone https://github.com/Moneemabdullah/team-time-off-tracker.git
+cd team-time-off-tracker
+```
+
+### Environment Variables
+
+The backend reads its configuration from `Backend/.env`. Copy the example file:
+
+```bash
+cp Backend/.env.example Backend/.env
+```
+
+`Backend/.env.example` defines:
+
+| Variable | Example | Description |
+| --- | --- | --- |
+| `PORT` | `PORT=5000` | Port the API listens on. Defaults to `5000` if unset. |
+| `MONGODB_URI` | `MONGODB_URI=mongodb://localhost:27017/team-time-off-tracker` | MongoDB connection string. **Required** — the server exits if it is missing. |
+
+The connection string differs by context:
+
+- Running locally: `mongodb://localhost:27017/team-time-off-tracker`
+- Running in Docker: `mongodb://mongodb:27017/team-time-off-tracker` (the service name,
+  not `localhost`)
+
+When using Docker Compose you do not need to set this yourself — `docker-compose.yml`
+passes it to the `backend` service.
+
+The frontend reads `VITE_API_URL` and falls back to `http://localhost:5000` if it is not
+set. There is no `.env` file for the frontend; set it yourself if you need to point the
+UI at a different backend.
+
+### Install Dependencies
+
+```bash
+cd Backend  && npm install
+cd ../Frontend && npm install
+```
+
+### Run with Docker
+
+From the repository root:
+
+```bash
+docker compose up --build
+```
+
+This starts four services:
+
+| Service | Image / build | Purpose | Port |
+| --- | --- | --- | --- |
+| `backend` | built from `Backend/Dockerfile` | Express API | `5000` |
+| `frontend` | built from `Frontend/Dockerfile` | React UI | `3000` |
+| `mongodb` | `mongo:7` | Database, started as a single-node replica set | `27017` |
+| `mongodb-init` | `mongo:7` | Runs `rs.initiate()` once, then exits | — |
+
+`mongodb-init` initialises the replica set that the approval workflow depends on. It is
+a no-op on subsequent runs.
+
+Check on it with:
+
+```bash
+docker compose exec mongodb mongosh --quiet --eval 'print(rs.status().myState)'
+# 1 means PRIMARY
+```
+
+> **Note:** the `frontend` service currently exits immediately. See
+> [Known Limitations](#known-limitations--unfinished-work).
+
+### Run Locally
+
+**Backend** (needs a reachable MongoDB — use the compose `mongodb` service, or your
+own local instance):
+
+```bash
+cd Backend
+cp .env.example .env
+npm run dev
+```
+
+The API starts on **http://localhost:5000**. `nodemon` restarts it on source changes.
+
+**Frontend** (in a second terminal):
+
+```bash
+cd Frontend
+npm run dev
+```
+
+Vite serves the UI on **http://localhost:5173** and forwards API calls to
+`http://localhost:5000`. Note that Vite does not proxy API routes in this project — the
+frontend calls the backend directly, which works because the backend enables CORS.
+
+---
+
+## API Documentation
+
+Swagger UI is served by the backend at:
+
+```text
+http://localhost:5000/api-docs
+```
+
+The full written reference, including every validation rule and error code, is in
+[`Backend/API.md`](Backend/API.md).
+
+---
+
+## API Overview
+
+All endpoints are unauthenticated.
+
+| Method | Endpoint         | Description            |
+| ------ | ---------------- | ---------------------- |
+| `POST` | `/employees`     | Create employee        |
+| `GET`  | `/employees`     | List employees         |
+| `GET`  | `/employees/:id` | Get employee           |
+| `POST` | `/requests`      | Create leave request   |
+| `GET`  | `/requests`      | List/filter requests   |
+| `PATCH`| `/requests/:id`  | Approve/reject request |
+
+Additional routes:
+
+| Method | Endpoint      | Description       |
+| ------ | ------------- | ----------------- |
+| `GET`  | `/health`     | Liveness check    |
+| `GET`  | `/api-docs`   | Swagger UI        |
+
+Responses use a consistent envelope:
+
+```json
+{ "success": true, "data": {} }
+```
+
+```json
+{ "success": false, "message": "Employee not found" }
+```
+
+`GET /requests` accepts two optional query parameters: `status` and `employeeId`.
+
+---
+
+## Business Rules
+
+- New employees start with **20 days** of annual leave balance. The value is set
+  server-side and cannot be supplied by the client.
+- Email addresses are **unique** and stored lower-cased.
+- Leave **days are calculated on the server**. A client cannot set `days` or `status`;
+  sending either is rejected with `400`.
+- **Only Monday–Friday count.** Saturdays and Sundays are excluded.
+- A range containing **zero working days** is rejected.
+- A request **cannot start in the past**, and `startDate` cannot be after `endDate`.
+- Dates are treated as **UTC calendar dates** end to end, which keeps the weekday count
+  free of off-by-one errors.
+- A new request is always created as **`PENDING`**.
+- Creating a request **does not change the leave balance** — the balance only moves on
+  approval.
+- An employee cannot have **overlapping `PENDING` or `APPROVED`** requests. A `REJECTED`
+  request does not block new ones.
+- **Only `PENDING` requests can be approved.** Approving anything else returns `409`.
+- Approval **cannot make the balance negative**; if there are not enough days the
+  request returns `409` and the balance is untouched.
+- Rejecting a `PENDING` request changes **nothing** on the balance.
+- Rejecting an **`APPROVED`** request **restores** the deducted days.
+- A **`REJECTED` request is terminal** — it cannot change status again.
+- The API speaks status in upper case (`PENDING`, `APPROVED`, `REJECTED`); the database
+  stores lower case.
+
+---
+
+## Development
+
+### Backend
+
+```bash
+cd Backend
+npm run dev     # nodemon + tsx, restarts on change
+npm run build   # type-check and compile TypeScript to dist/
+npm start       # run the compiled output
+```
+
+### Frontend
+
+```bash
+cd Frontend
+npm run dev       # Vite dev server on http://localhost:5173
+npm run build     # production build into dist/
+npm run preview   # preview the production build
+npm run lint      # ESLint
+```
+
+---
+
+## Docker
+
+### Services
+
+- **backend** — built from `Backend/Dockerfile` (`node:24-alpine`). Installs
+  dependencies, compiles TypeScript, and runs `node dist/server.js`. Exposes `5000`.
+- **frontend** — built from `Frontend/Dockerfile` (`node:24-alpine`). Builds the Vite
+  app. Exposes `3000`.
+- **mongodb** — `mongo:7`, started with `--replSet rs0`, data persisted in the named
+  volume `mongodb_data`. Exposes `27017`.
+- **mongodb-init** — a short-lived `mongo:7` container that calls `rs.initiate()` once
+  and exits.
+
+### Why a replica set
+
+Approving or rejecting a request updates the employee's balance and the request status
+together, and that pair of writes runs inside a **MongoDB transaction**. Transactions
+are only supported on a replica set or a sharded cluster, so a standalone `mongod`
+would make `PATCH /requests/:id` fail. The single-node set configured here is enough
+for local development.
+
+### Useful commands
+
+```bash
+docker compose up --build          # start everything
+docker compose up -d backend mongodb   # start without the frontend
+docker compose logs -f backend    # follow backend logs
+docker compose ps                  # show service status
+docker compose down                # stop and remove containers
+docker compose down -v             # stop and also delete the database volume
+```
+
+---
+
+## Project Decisions
+
+These were made where the brief left room for interpretation.
+
+- **Pending requests do not reduce the leave balance.** The balance only changes on
+  approval, so an employee can hold several pending requests without the balance
+  appearing to drop. Rejecting a pending request therefore needs no restoration.
+- **Leave days are calculated entirely on the server.** The client sends only dates and
+  a reason; `days` and `status` are never accepted from the request body.
+- **Saturdays and Sundays are excluded**, and the backend rejects a request that spans
+  no working days at all.
+- **All dates are handled as UTC calendar dates.** Parsing and iteration both use UTC
+  getters, which is what keeps the weekday count from drifting by a day.
+- **New employees start with 20 days** of balance, set server-side.
+- **Employees are referenced by ID.** Leave requests store an `employee` reference, so
+  submission requires a valid employee ObjectId.
+- **Approving uses an atomic guard as well as a transaction.** The deduction filters on
+  `annualLeaveBalance >= days` in the same `updateOne`, so even without the transaction
+  parallel approvals cannot drive a balance negative.
+- **The API exposes `annualLeaveBalance`, matching the model field name**, rather than
+  introducing a second name for the same value.
+- **No authentication or authorization** was added, as the brief excluded them. Every
+  endpoint is therefore open, and the admin approval actions are unprotected.
+
+---
+
+## Known Limitations / Unfinished Work
+
+The backend is complete and verified. The frontend is **not yet integrated** and has
+known defects:
+
+- **`EmployeePage` sends the employee's name as `employeeId`.** The backend requires a
+  24-character ObjectId, so every request submission is rejected with `400`. The page
+  needs to load employees from `GET /employees` and submit the selected ID.
+- **`AdminPage` reads the wrong response shape.** It assigns the full
+  `{ success, data }` envelope to state and then calls `.filter()` on it, which throws
+  at runtime.
+- **`AdminPage` uses `_id`, but the API returns `id`.** Approve/reject therefore calls
+  `PATCH /requests/undefined`, and the list never refreshes after an update.
+- **`AdminPage` compares status against `'pending'`,** while the API returns `'PENDING'`,
+  so the approve/reject buttons never render.
+- **The frontend container cannot start.** `Frontend/Dockerfile` runs
+  `CMD ["npm", "start"]`, but `Frontend/package.json` defines no `start` script. The
+  service exits with an npm error.
+- **`EXPOSE 3000` does not match the Vite default ports** (5173 for dev, 4173 for
+  preview), and `vite.config.js` sets no `server.port`.
+- **`VITE_API_URL` is not set in Docker Compose.** The bundle falls back to
+  `http://localhost:5000`, which happens to work through the published port but is not
+  configured. Vite inlines this at build time, so it would need to be a build argument.
+- **There is no automated test suite** (see [Testing](#testing)).
+
+---
+
+## Contributing
+
+1. Create a branch off `main`:
+
+   ```bash
+   git checkout -b feat/short-description
+   ```
+
+2. Make focused changes — one logical change per commit. Write commit messages in the
+   existing style, e.g. `feat: add employees API endpoints` or
+   `fix: run mongodb as a replica set for transactions`.
+
+3. Verify your work:
+
+   ```bash
+   cd Backend  && npx tsc --noEmit && npm run build
+   cd ../Frontend && npm run lint
+   ```
+
+4. Push and open a pull request against `main`:
+
+   ```bash
+   git push -u origin feat/short-description
+   ```
+
+Keep pull requests small and describe the behaviour change, not just the file list.
+
+---
+
+## License
+
+`Backend/package.json` declares `"license": "MIT"`, but **no `LICENSE` file is present
+in the repository**, and `Frontend/package.json` declares no license. A license has not
+formally been specified for the project as a whole — add a `LICENSE` file before
+publishing or distributing this code.
