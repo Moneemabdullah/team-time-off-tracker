@@ -22,10 +22,28 @@ services:
 
   mongodb:
     image: mongo:7
+    # Approve/reject run inside a transaction, which MongoDB only supports on a
+    # replica set. A single-node set is enough for local development.
+    command: ["--replSet", "rs0"]
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+
+  # Initiates the replica set once, then exits. Compose is a no-op on later
+  # runs because the set is already initialised in the persisted volume.
+  mongodb-init:
+    image: mongo:7
+    depends_on:
+      - mongodb
+    restart: on-failure
+    entrypoint:
+      - mongosh
+      - --host
+      - mongodb:27017
+      - --quiet
+      - --eval
+      - "try { rs.status() } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongodb:27017'}]}) }"
 
 volumes:
   mongodb_data:
