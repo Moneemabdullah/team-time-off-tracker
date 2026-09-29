@@ -6,9 +6,10 @@ services:
     ports:
       - "5000:5000"
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     environment:
-      MONGODB_URI: mongodb://mongodb:27017/team-time-off-tracker
+      MONGODB_URI: mongodb://mongodb:27017/team-time-off-tracker?replicaSet=rs0
       PORT: 5000
 
   frontend:
@@ -22,21 +23,31 @@ services:
 
   mongodb:
     image: mongo:7
-    # Approve/reject run inside a transaction, which MongoDB only supports on a
-    # replica set. A single-node set is enough for local development.
-    command: ["--replSet", "rs0"]
+    command:
+      - "--replSet"
+      - "rs0"
+      - "--quiet"
+      - "--setParameter"
+      - "logComponentVerbosity={command:0,network:0,replication:1,storage:0,write:0}"
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
-  # Initiates the replica set once, then exits. Compose is a no-op on later
-  # runs because the set is already initialised in the persisted volume.
+  # Initiates the replica set once, then exits. On subsequent runs rs.status()
+  # succeeds and the container is a no-op.
   mongodb-init:
     image: mongo:7
     depends_on:
-      - mongodb
-    restart: on-failure
+      mongodb:
+        condition: service_healthy
+    restart: "no"
     entrypoint:
       - mongosh
       - --host
