@@ -14,11 +14,12 @@ import { countWeekdays, parseDateOnly, todayDateOnly, toDateOnlyString } from '.
 /** A request in one of these states blocks the employee's calendar. */
 const BLOCKING_STATUSES: RequestStatus[] = ['pending', 'approved'];
 
-const EMPLOYEE_FIELDS = 'name annualLeaveBalance';
+const EMPLOYEE_FIELDS = 'name email annualLeaveBalance';
 
 type PopulatedEmployee = {
   _id: mongoose.Types.ObjectId;
   name: string;
+  email: string;
   annualLeaveBalance: number;
 };
 
@@ -64,6 +65,7 @@ function toResponse(request: PopulatedRequest): Record<string, unknown> {
       ? {
           id: employee._id.toString(),
           name: employee.name,
+          email: employee.email,
           annualLeaveBalance: employee.annualLeaveBalance,
         }
       : { id: String(employee) },

@@ -9,6 +9,14 @@ const employeeSchema = new mongoose.Schema(
       trim: true,
     },
 
+    email: {
+      type: String,
+      required: [true, "Employee email is required"],
+      unique: true,
+      trim: true,
+      lowercase: true,
+    },
+
     annualLeaveBalance: {
       type: Number,
       required: true,
