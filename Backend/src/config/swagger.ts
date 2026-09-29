@@ -63,6 +63,19 @@ const options: swaggerJsdoc.Options = {
             email: { type: 'string', format: 'email', example: 'moneem@example.com' },
           },
         },
+        ReassignAnnualLeaveBody: {
+          type: 'object',
+          required: ['number'],
+          properties: {
+            number: {
+              type: 'number',
+              description:
+                'Signed number of days added to every employee balance. ' +
+                'This endpoint is not validated, so a non-numeric value is not rejected.',
+              example: 5,
+            },
+          },
+        },
         CreateRequestBody: {
           type: 'object',
           required: ['name', 'email', 'startDate', 'endDate', 'reason'],

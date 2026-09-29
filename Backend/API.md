@@ -280,6 +280,76 @@ balance negative. The first succeeds and the rest get `409`.
 
 ---
 
+# Employee endpoints
+
+## 4. Reassign annual leave
+
+```
+POST /employees/reassign-annual-leave
+```
+
+Adds a number of days to the leave balance of **every** employee.
+
+> **This is a bulk operation, not a per-employee one.** Despite the name, it takes no
+> employee identifier — `number` is applied to all employees in the collection. There
+> is no way to target a single employee.
+
+### Request body
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `number` | number | yes | Signed days to add. Positive grants leave, negative removes it. |
+
+```bash
+curl -X POST http://localhost:5000/employees/reassign-annual-leave \
+  -H 'Content-Type: application/json' \
+  -d '{ "number": 5 }'
+```
+
+### `200` response
+
+Note that this endpoint returns a `message` and **no `data` field**, unlike every
+other endpoint in the API:
+
+```json
+{
+  "success": true,
+  "message": "Annual leave reassigned successfully"
+}
+```
+
+### Errors
+
+| Code | When |
+| --- | --- |
+| `500` | the balance could not be written — see the warnings below |
+
+### ⚠️ Known defects
+
+This endpoint is **not validated and not transactional**. Verified behaviour:
+
+| Input | Actual result |
+| --- | --- |
+| `{"number": 5}` | Works. Every balance increases by 5. |
+| `{"number": -30}` | `500`. Caught by the model's `min: 0` validator, so no data is written. |
+| `{"number": "7"}` | **`200` — silently corrupts data.** A string is accepted and JavaScript concatenates it, turning a balance of `25` into `"257"`. |
+| `{}` | `500`, with a raw Mongoose error leaked to the client: `Employee validation failed: annualLeaveBalance: Cast to Number failed for value "NaN"`. |
+
+Consequences worth knowing before calling it:
+
+- **Send a JSON number, never a quoted string.** A string is not rejected; it
+  permanently corrupts the stored balance and there is no undo.
+- **No partial-failure protection.** Each employee is saved in a separate loop
+  iteration, so a failure part-way through leaves earlier employees already
+  updated.
+- **The success response omits `data`,** so a client that reads `response.data`
+  will get `undefined`.
+
+Adding a Zod schema for the body and wrapping the loop in a transaction would close
+all three. Until then, treat this endpoint as development-only.
+
+---
+
 # Health check
 
 ```

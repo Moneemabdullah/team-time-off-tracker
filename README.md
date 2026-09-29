@@ -260,6 +260,7 @@ All endpoints are unauthenticated.
 | `POST` | `/employees`     | Create employee        |
 | `GET`  | `/employees`     | List employees         |
 | `GET`  | `/employees/:id` | Get employee           |
+| `POST` | `/employees/reassign-annual-leave` | Add days to every balance |
 | `POST` | `/requests`      | Create leave request   |
 | `GET`  | `/requests`      | List/filter requests   |
 | `PATCH`| `/requests/:id`  | Approve/reject request |
@@ -289,6 +290,10 @@ Responses use a consistent envelope:
 
 - New employees start with **20 days** of annual leave balance. The value is set
   server-side and cannot be supplied by the client.
+- `POST /employees/reassign-annual-leave` adds a signed number of days to the balance of
+  **every** employee. It is a bulk operation — there is no per-employee targeting, and
+  it bypasses the balance guard used by approvals. See
+  [Known Limitations](#known-limitations--unfinished-work).
 - Email addresses are **unique** and stored lower-cased.
 - Leave **days are calculated on the server**. A client cannot set `days` or `status`;
   sending either is rejected with `400`.
@@ -419,6 +424,14 @@ known defects:
 - **`VITE_API_URL` is not set in Docker Compose.** The bundle falls back to
   `http://localhost:5000`, which happens to work through the published port but is not
   configured. Vite inlines this at build time, so it would need to be a build argument.
+- **`POST /employees/reassign-annual-leave` is unvalidated and not transactional.** Its
+  body is never parsed, so a quoted string such as `{"number": "7"}` is accepted and
+  silently corrupts every balance (a balance of `25` becomes `"257"`), while a
+  negative or missing value returns `500` with a raw Mongoose error in the message.
+  Each employee is saved in a separate loop iteration, so a mid-way failure leaves
+  balances partially applied. Its success response also returns a `message` with no
+  `data` field, unlike every other endpoint. Treat it as development-only until it
+  gets a Zod schema and a transaction.
 - **There is no automated test suite** (see [Testing](#testing)).
 
 ---
