@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { z } from 'zod';
 import toast from 'react-hot-toast';
 import { apiRequest } from '../lib/api';
 
@@ -11,12 +12,19 @@ const STATUS_BADGE = {
   REJECTED: 'bg-red-100 text-red-700',
 };
 
+const reassignSchema = z.coerce
+  .number()
+  .int('Must be a whole number')
+  .min(0, 'Cannot be negative');
+
 function AdminPage() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [nameFilter, setNameFilter] = useState('');
+  const [leaveNumber, setLeaveNumber] = useState('');
+  const [reassigning, setReassigning] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +64,35 @@ function AdminPage() {
       toast.success(`Request ${status.toLowerCase()} successfully`);
     } catch (err) {
       toast.error(err.message || 'Failed to update status');
+    }
+  }
+
+  async function handleReassign(e) {
+    e.preventDefault();
+
+    if (leaveNumber.trim() === '') {
+      toast.error('Enter a number of days');
+      return;
+    }
+
+    const result = reassignSchema.safeParse(leaveNumber);
+    if (!result.success) {
+      toast.error(result.error.issues[0]?.message || 'Enter a valid number');
+      return;
+    }
+
+    setReassigning(true);
+    try {
+      await apiRequest('/employees/reassign-annual-leave', {
+        method: 'POST',
+        body: JSON.stringify({ number: result.data }),
+      });
+      toast.success('Annual leave reassigned successfully');
+      setLeaveNumber('');
+    } catch (err) {
+      toast.error(err.message || 'Failed to reassign annual leave');
+    } finally {
+      setReassigning(false);
     }
   }
 
@@ -102,6 +139,37 @@ function AdminPage() {
             />
           </div>
         </div>
+      </div>
+
+      <div className="mb-8 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h2 className="mb-1 text-lg font-semibold text-gray-900">Reassign Annual Leave</h2>
+        <p className="mb-4 text-sm text-gray-500">
+          Adds the entered number of days to every employee&apos;s annual leave balance.
+        </p>
+        <form onSubmit={handleReassign} className="flex flex-wrap items-end gap-3">
+          <div className="w-40">
+            <label htmlFor="leaveNumber" className="mb-1 block text-sm font-medium text-gray-700">
+              Days
+            </label>
+            <input
+              id="leaveNumber"
+              type="number"
+              min="0"
+              step="1"
+              value={leaveNumber}
+              onChange={(e) => setLeaveNumber(e.target.value)}
+              placeholder="e.g. 5"
+              className={INPUT_CLASS}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={reassigning}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {reassigning ? 'Reassigning...' : 'Reassign'}
+          </button>
+        </form>
       </div>
 
       {loading && <p className="mb-4 text-sm text-gray-500">Loading requests...</p>}
