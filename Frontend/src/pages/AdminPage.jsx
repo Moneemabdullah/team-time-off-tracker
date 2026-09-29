@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { z } from 'zod';
 import toast from 'react-hot-toast';
 import { apiRequest } from '../lib/api';
 
@@ -11,13 +12,19 @@ const STATUS_BADGE = {
   REJECTED: 'bg-red-100 text-red-700',
 };
 
+const reassignSchema = z.coerce
+  .number()
+  .int('Must be a whole number')
+  .min(0, 'Cannot be negative');
+
 function AdminPage() {
   const [requests, setRequests] = useState([]);
-  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [nameFilter, setNameFilter] = useState('');
+  const [leaveNumber, setLeaveNumber] = useState('');
+  const [reassigning, setReassigning] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,13 +36,11 @@ function AdminPage() {
         if (statusFilter) params.append('status', statusFilter);
 
         const qs = params.toString() ? `?${params.toString()}` : '';
-        const [reqs, emps] = await Promise.all([
-          apiRequest(`/requests${qs}`),
-          apiRequest('/employees'),
-        ]);
+        const reqs = await apiRequest(`/requests${qs}`);
+        console.log('Fetched requests:', reqs);
+
         if (!cancelled) {
           setRequests(reqs);
-          setEmployees(emps);
         }
       } catch (err) {
         if (!cancelled) setError(err.message || 'Failed to load data');
@@ -62,6 +67,35 @@ function AdminPage() {
     }
   }
 
+  async function handleReassign(e) {
+    e.preventDefault();
+
+    if (leaveNumber.trim() === '') {
+      toast.error('Enter a number of days');
+      return;
+    }
+
+    const result = reassignSchema.safeParse(leaveNumber);
+    if (!result.success) {
+      toast.error(result.error.issues[0]?.message || 'Enter a valid number');
+      return;
+    }
+
+    setReassigning(true);
+    try {
+      await apiRequest('/employees/reassign-annual-leave', {
+        method: 'POST',
+        body: JSON.stringify({ number: result.data }),
+      });
+      toast.success('Annual leave reassigned successfully');
+      setLeaveNumber('');
+    } catch (err) {
+      toast.error(err.message || 'Failed to reassign annual leave');
+    } finally {
+      setReassigning(false);
+    }
+  }
+
   const filtered = requests.filter((req) => {
     const name = req.employee?.name || '';
     return name.toLowerCase().includes(nameFilter.toLowerCase());
@@ -71,65 +105,71 @@ function AdminPage() {
     <div className="mx-auto max-w-6xl px-4 py-10">
       <h1 className="mb-6 text-3xl font-semibold text-gray-900">Admin Dashboard</h1>
 
-      <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">Employees</h2>
-          {loading && <p className="text-sm text-gray-500">Loading...</p>}
-          {!loading && employees.length === 0 && (
-            <p className="text-sm text-gray-500">No employees found</p>
-          )}
-          {employees.length > 0 && (
-            <ul className="divide-y divide-gray-100">
-              {employees.map((emp) => (
-                <li key={emp.id} className="flex items-center justify-between gap-3 py-2">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{emp.name}</p>
-                    <p className="text-xs text-gray-500">{emp.email}</p>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
-                    {emp.annualLeaveBalance} days left
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      <div className="mb-8 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h2 className="mb-4 text-lg font-semibold text-gray-900">Filters</h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="statusFilter" className="mb-1 block text-sm font-medium text-gray-700">
+              Filter by Status
+            </label>
+            <select
+              id="statusFilter"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className={INPUT_CLASS}
+            >
+              <option value="">All</option>
+              <option value="PENDING">Pending</option>
+              <option value="APPROVED">Approved</option>
+              <option value="REJECTED">Rejected</option>
+            </select>
+          </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">Filters</h2>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="statusFilter" className="mb-1 block text-sm font-medium text-gray-700">
-                Filter by Status
-              </label>
-              <select
-                id="statusFilter"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className={INPUT_CLASS}
-              >
-                <option value="">All</option>
-                <option value="PENDING">Pending</option>
-                <option value="APPROVED">Approved</option>
-                <option value="REJECTED">Rejected</option>
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="nameFilter" className="mb-1 block text-sm font-medium text-gray-700">
-                Filter by Name
-              </label>
-              <input
-                id="nameFilter"
-                type="text"
-                placeholder="Search by name..."
-                value={nameFilter}
-                onChange={(e) => setNameFilter(e.target.value)}
-                className={INPUT_CLASS}
-              />
-            </div>
+          <div>
+            <label htmlFor="nameFilter" className="mb-1 block text-sm font-medium text-gray-700">
+              Filter by Name
+            </label>
+            <input
+              id="nameFilter"
+              type="text"
+              placeholder="Search by name..."
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              className={INPUT_CLASS}
+            />
           </div>
         </div>
+      </div>
+
+      <div className="mb-8 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h2 className="mb-1 text-lg font-semibold text-gray-900">Reassign Annual Leave</h2>
+        <p className="mb-4 text-sm text-gray-500">
+          Adds the entered number of days to every employee&apos;s annual leave balance.
+        </p>
+        <form onSubmit={handleReassign} className="flex flex-wrap items-end gap-3">
+          <div className="w-40">
+            <label htmlFor="leaveNumber" className="mb-1 block text-sm font-medium text-gray-700">
+              Days
+            </label>
+            <input
+              id="leaveNumber"
+              type="number"
+              min="0"
+              step="1"
+              value={leaveNumber}
+              onChange={(e) => setLeaveNumber(e.target.value)}
+              placeholder="e.g. 5"
+              className={INPUT_CLASS}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={reassigning}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {reassigning ? 'Reassigning...' : 'Reassign'}
+          </button>
+        </form>
       </div>
 
       {loading && <p className="mb-4 text-sm text-gray-500">Loading requests...</p>}
