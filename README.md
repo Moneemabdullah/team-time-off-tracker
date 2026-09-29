@@ -17,8 +17,8 @@ under concurrency rather than feature breadth.
   list them, and fetch one by ID.
 - **Leave request creation** — submit a request for a date range with a reason; it is
   created in `PENDING` state.
-- **Leave request listing and filtering** — list all requests, optionally filtered by
-  `status` and/or `employeeId`, newest first.
+- **Leave request listing and filtering** — employees see only their own requests;
+  admins see all and can filter by `status` and/or `userId`, newest first.
 - **Approve / reject workflow** — move a request from `PENDING` to `APPROVED` or
   `REJECTED`, with guarded state transitions.
 - **Annual leave balance** — every employee starts with 20 days; approval deducts the
@@ -286,10 +286,12 @@ Responses use a consistent envelope:
 ```
 
 ```json
-{ "success": false, "message": "Employee not found" }
+{ "success": false, "message": "Leave request not found" }
 ```
 
-`GET /requests` accepts two optional query parameters: `status` and `employeeId`.
+`GET /requests` accepts two optional query parameters: `status` and `userId`. The
+`userId` filter is admin-only; an employee who passes someone else's id receives
+`403`, and omitting it returns only their own requests.
 
 ---
 
@@ -400,15 +402,22 @@ These were made where the brief left room for interpretation.
 - **All dates are handled as UTC calendar dates.** Parsing and iteration both use UTC
   getters, which is what keeps the weekday count from drifting by a day.
 - **New employees start with 20 days** of balance, set server-side.
-- **Employees are referenced by ID.** Leave requests store an `employee` reference, so
-  submission requires a valid employee ObjectId.
+- **Leave requests reference a `user`, not an `employee`,** and the owner is taken from
+  the bearer token rather than the request body. There is no client-supplied user id.
+- **Authentication and role-based authorization are in place.** The earlier design was
+  deliberately unauthenticated, but JWT login and `EMPLOYEE`/`ADMIN` roles have since
+  been added, so no endpoint is open and the approval actions are admin-only.
+- **The configuration contract stays on `MONGODB_URI` with port `5000`.** A
+  parallel draft of `config/env.ts` proposed `MONGO_URI`, port `3000` and a
+  `leave-management` database; that was reconciled back because `docker-compose.yml`
+  sets `MONGODB_URI`, port 3000 collides with the frontend container's published port,
+  and the database name must match the rest of the project. The zod validation from
+  that draft was kept.
 - **Approving uses an atomic guard as well as a transaction.** The deduction filters on
   `annualLeaveBalance >= days` in the same `updateOne`, so even without the transaction
   parallel approvals cannot drive a balance negative.
 - **The API exposes `annualLeaveBalance`, matching the model field name**, rather than
   introducing a second name for the same value.
-- **No authentication or authorization** was added, as the brief excluded them. Every
-  endpoint is therefore open, and the admin approval actions are unprotected.
 
 ---
 
@@ -460,6 +469,23 @@ authentication** and has known defects:
   It validates its input and refuses an operation that would leave anyone negative,
   but the bulk `updateMany` is a single write, so a mid-operation failure is unlikely
   but not impossible.
+- **Password hashes are excluded from responses by convention, not by the model.**
+  `user.model.ts` does not set `select: false` on `passwordHash`, so `userModel.find()`
+  returns documents containing it. Nothing leaks today because `toPublicUser` builds a
+  new object from a fixed field list, but any future endpoint returning a raw document
+  would expose the hashes. See [Backend/API.md](Backend/API.md#known-limitations).
+- **`createUser` in the user service accepts a caller-supplied `role`,** so code that
+  holds the admin password could mint another admin. No route reaches it today, so it is
+  not exploitable, but it should be tightened before employee creation is exposed.
+- **CORS allows every origin** (`Access-Control-Allow-Origin: *`) and **login is not
+  rate limited**. Both are fine for local development and both need restricting before
+  any real deployment.
+- **Tokens cannot be revoked individually** — there is no signout or deny list, so a
+  token stays valid until it expires.
+- **Unmatched routes return Express's default HTML 404**, not the `{ success, message }`
+  envelope, because the error handler only covers requests that matched a route. A
+  client that JSON-parses every response will throw on an unknown path or a wrong
+  method.
 
 ---
 

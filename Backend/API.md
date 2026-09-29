@@ -42,8 +42,16 @@ curl -X POST http://localhost:5000/auth/login \
 }
 ```
 
-`passwordHash` is **never** included in any response. It is also `select: false` on
-the model, so it does not load into query results in the first place.
+`passwordHash` is **never** included in any response. That guarantee rests entirely
+on `toPublicUser`, which builds a new object from a fixed list of fields
+(`id`, `name`, `email`, `role`, `annualLeaveBalance`) rather than passing a document
+through.
+
+> **Note:** the model does **not** set `select: false` on `passwordHash`, so a plain
+> `userModel.find()` does load the hash into the returned documents. Nothing currently
+> returns a raw document, so there is no leak, but any future endpoint that does would
+> expose the hashes. Restoring `select: false` is the recommended hardening. See
+> [Known limitations](#known-limitations).
 
 Tokens carry the user id and role, but the role is re-read from the database on
 every request, so a role change takes effect immediately rather than waiting for
@@ -432,6 +440,46 @@ Running the seed inside Docker:
 ```bash
 docker compose exec backend npm run seed
 ```
+
+---
+
+# Known limitations
+
+Things that are true today and worth knowing before extending the API.
+
+- **Password hashes are only kept out of responses by `toPublicUser`.** The model
+  does not use `select: false`, so `userModel.find()` and `findById()` return
+  documents that include `passwordHash`. Every current endpoint maps the document
+  through `toPublicUser`, which whitelists fields, so no hash is ever serialised —
+  this is verified against `/auth/login`, `/users`, `/users/:id`, `/users/me` and
+  `/requests`. But the protection is one function, not a model-level guarantee. Add
+  `select: false` to `passwordHash` so future endpoints are safe by default.
+
+- **`createUser` accepts a caller-supplied `role`.** The service function in
+  `src/services/user.service.ts` takes an optional `role` and applies it, so any code
+  path holding the admin password could mint another admin. No route currently
+  reaches it — it exists for the seed, which always passes `ADMIN` — so it is not
+  exploitable today, but it should not stay reachable. Drop the parameter, or have it
+  reject anything other than `EMPLOYEE`, before exposing employee creation.
+
+- **CORS is wide open.** The backend serves `Access-Control-Allow-Origin: *`, which is
+  appropriate for local development but needs an explicit origin allowlist before any
+  real deployment.
+
+- **Login is not rate limited.** Passwords are compared with bcrypt, which is slow by
+  design, but there is no lockout or throttling, so credentials can still be guessed.
+
+- **Tokens cannot be revoked individually.** Signout is not implemented; a token stays
+  valid until it expires. Deleting a user does invalidate their tokens, and a role
+  change takes effect immediately, but there is no per-token deny list.
+
+- **Unmatched routes return HTML, not the JSON envelope.** The error handler is mounted
+  after the routers, so it covers errors thrown from a matched route but not requests
+  that match no route at all. An unknown path, or a wrong method such as
+  `GET /auth/login` or `GET /requests/:id`, gets Express's default `404` page with
+  `Content-Type: text/html` rather than `{ "success": false, ... }`. A client parsing
+  every response as JSON will throw on those. Fixing it means adding a catch-all
+  `app.use()` after the routers.
 
 ---
 
