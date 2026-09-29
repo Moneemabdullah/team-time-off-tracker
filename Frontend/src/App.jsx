@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import EmployeePage from './pages/EmployeePage';
 import AdminPage from './pages/AdminPage';
@@ -7,6 +8,7 @@ function App() {
   return (
     <>
       <Navbar />
+      <Toaster position="top-center" />
       <Routes>
         <Route path="/" element={<Navigate to="/employee" replace />} />
         <Route path="/employee" element={<EmployeePage />} />
