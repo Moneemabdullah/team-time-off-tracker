@@ -63,4 +63,18 @@ export async function getById(
   }
 }
 
+export async function resassaingAnualLeave(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { number } = req.body;
+    await employeeService.resassaingAnualLeave(number);
+    res.status(200).json({ success: true, message: 'Annual leave reassigned successfully' });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export { sendError };
