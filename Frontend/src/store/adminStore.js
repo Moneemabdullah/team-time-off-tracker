@@ -2,10 +2,6 @@ import { create } from 'zustand';
 import toast from 'react-hot-toast';
 import AxiosInstance from '@/lib/axiosInstance';
 
-// The API lists every account; the dashboard and "All Employees" page are
-// about the team, so admins are left out.
-const asTeam = (users) => (users || []).filter((u) => u.role !== 'ADMIN');
-
 export const useAdminStore = create((set, get) => ({
   requests: [],
   employees: [],
@@ -13,6 +9,9 @@ export const useAdminStore = create((set, get) => ({
   error: '',
   statusFilter: '',
   nameFilter: '',
+  updatingId: null,
+  addingEmployee: false,
+  reassigning: false,
 
   setStatusFilter: (statusFilter) => set({ statusFilter }),
   setNameFilter: (nameFilter) => set({ nameFilter }),
@@ -21,15 +20,17 @@ export const useAdminStore = create((set, get) => ({
     const { statusFilter } = get();
     set({ loading: true, error: '' });
     try {
+      // limit=100 is interim until the list gets real pagination controls;
+      // the API defaults to 10 per page.
       const [reqs, users] = await Promise.all([
-        AxiosInstance.get('/requests', {
-          params: statusFilter ? { status: statusFilter } : {},
+        AxiosInstance.get('/admin/requests', {
+          params: { limit: 100, ...(statusFilter ? { status: statusFilter } : {}) },
         }),
-        AxiosInstance.get('/users'),
+        AxiosInstance.get('/admin/users'),
       ]);
       set({
         requests: reqs.data.data || [],
-        employees: asTeam(users.data.data),
+        employees: users.data.data || [],
       });
     } catch (err) {
       set({ error: err.message || 'Failed to load data' });
@@ -40,51 +41,64 @@ export const useAdminStore = create((set, get) => ({
 
   refreshEmployees: async () => {
     try {
-      const { data } = await AxiosInstance.get('/users');
-      set({ employees: asTeam(data.data) });
+      const { data } = await AxiosInstance.get('/admin/users');
+      set({ employees: data.data || [] });
     } catch {
-      // keep the current list if the refresh fails
+      toast.error('Failed to refresh employees');
+      set({ employees: [] });
     }
   },
 
   updateRequestStatus: async (id, status) => {
+    if (get().updatingId) return false;
+    set({ updatingId: id });
     try {
-      const { data } = await AxiosInstance.patch(`/requests/${id}`, { status });
+      const { data } = await AxiosInstance.patch(`/admin/requests/${id}`, { status });
       set((state) => ({
         requests: state.requests.map((r) =>
           r.id === id ? { ...r, ...data.data } : r
         ),
       }));
       toast.success(`Request ${status.toLowerCase()} successfully`);
-      get().refreshEmployees();
+      await get().refreshEmployees();
       return true;
     } catch (err) {
       toast.error(err.message || 'Failed to update status');
       return false;
+    } finally {
+      set({ updatingId: null });
     }
   },
 
   reassignAnnualLeave: async (number) => {
+    if (get().reassigning) return false;
+    set({ reassigning: true });
     try {
-      await AxiosInstance.post('/users/reassign-annual-leave', { number });
+      await AxiosInstance.post('/admin/users/reassign-annual-leave', { number });
       toast.success('Annual leave reassigned successfully');
-      get().refreshEmployees();
+      await get().refreshEmployees();
       return true;
     } catch (err) {
       toast.error(err.message || 'Failed to reassign annual leave');
       return false;
+    } finally {
+      set({ reassigning: false });
     }
   },
 
-  addEmployee: async ({ name, email }) => {
+  addEmployee: async ({ name, email, password }) => {
+    if (get().addingEmployee) return false;
+    set({ addingEmployee: true });
     try {
-      await AxiosInstance.post('/employees', { name, email });
+      await AxiosInstance.post('/admin/users', { name, email, password });
       toast.success('Employee added successfully');
-      get().refreshEmployees();
+      await get().refreshEmployees();
       return true;
     } catch (err) {
       toast.error(err.message || 'Failed to add employee');
       return false;
+    } finally {
+      set({ addingEmployee: false });
     }
   },
 }));

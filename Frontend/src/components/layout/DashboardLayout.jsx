@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   CalendarPlusIcon,
   InboxIcon,
+  KeyRoundIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MenuIcon,
@@ -19,21 +20,25 @@ import { URLs } from '@/lib/URLs';
 
 
 const linkClasses = ({ isActive }) =>
-  `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+  `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
     isActive
-      ? 'bg-primary text-primary-foreground'
-      : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+      ? 'bg-primary text-primary-foreground shadow-md shadow-primary/30'
+      : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
   }`;
 
 function DashboardLayout({ children }) {
   const user = useAuthStore((s) => s.user);
   const NAV_ITEMS = {
-  employee: [{ to: URLs.EMPLOYEE, label: 'New Request', icon: CalendarPlusIcon },
+  employee: [
+    // `end` so /employee only highlights on the exact path — otherwise it
+    // prefix-matches /employee/change-password and /employee/:id/requests too.
+    { to: URLs.EMPLOYEE, label: 'New Request', icon: CalendarPlusIcon, end: true },
     {
     to: `${URLs.EMPLOYEE_REQUESTS.replace(':id', user.id)}`,
     label: 'My Requests',
     icon: InboxIcon,
   },
+    { to: URLs.CHANGE_PASSWORD, label: 'Change Password', icon: KeyRoundIcon },
   ],
   admin: [
     { to: URLs.ADMIN, label: 'Dashboard', icon: LayoutDashboardIcon, end: true },
@@ -48,6 +53,13 @@ function DashboardLayout({ children }) {
 
   const role = user?.role || 'employee';
   const items = NAV_ITEMS[role];
+  const initials = (user?.name || 'Guest')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase();
 
   function handleLogout() {
     logout();
@@ -95,6 +107,9 @@ function DashboardLayout({ children }) {
         <Separator className="my-4" />
 
         <nav className="flex flex-col gap-1">
+          <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+            Menu
+          </p>
           {items.map((item) => (
             <NavLink
               key={item.to}
@@ -111,16 +126,30 @@ function DashboardLayout({ children }) {
 
         <div className="mt-auto space-y-3">
           <Separator />
-          <div className="px-1">
-            <p className="truncate text-sm font-medium text-sidebar-foreground">
-              {user?.name || 'Guest'}
-            </p>
-            <p className="truncate text-xs text-sidebar-foreground/60">{user?.email}</p>
-            <Badge variant="secondary" className="mt-2 capitalize">
+          <div className="space-y-2.5 rounded-xl border border-sidebar-border/70 bg-sidebar-accent/50 p-3">
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                {initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-sidebar-foreground">
+                  {user?.name || 'Guest'}
+                </p>
+                <p className="truncate text-xs text-sidebar-foreground/60">
+                  {user?.email}
+                </p>
+              </div>
+            </div>
+            <Badge variant="secondary" className="w-fit capitalize">
               {role}
             </Badge>
           </div>
-          <Button variant="outline" size="sm" className="w-full" onClick={handleLogout}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-center transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+            onClick={handleLogout}
+          >
             <LogOutIcon />
             Logout
           </Button>
@@ -128,7 +157,7 @@ function DashboardLayout({ children }) {
       </aside>
 
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur">
+        <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-4 shadow-sm backdrop-blur">
           <Button
             variant="ghost"
             size="icon-sm"
@@ -141,9 +170,14 @@ function DashboardLayout({ children }) {
           <h1 className="text-sm font-semibold text-foreground">
             {role === 'admin' ? 'Admin Dashboard' : 'Employee Dashboard'}
           </h1>
-          <Badge variant="outline" className="ml-auto capitalize lg:hidden">
-            {role}
-          </Badge>
+          <div className="ml-auto flex items-center gap-2">
+            <Badge variant="outline" className="capitalize lg:hidden">
+              {role}
+            </Badge>
+            <div className="flex size-8 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground lg:hidden">
+              {initials}
+            </div>
+          </div>
         </header>
 
         <main className="p-4 lg:p-8">{children}</main>

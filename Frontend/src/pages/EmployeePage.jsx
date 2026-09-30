@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
-import { Loader2Icon } from 'lucide-react';
+import { CalendarPlusIcon, Loader2Icon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import AxiosInstance from '@/lib/axiosInstance';
 
@@ -21,8 +22,9 @@ function today() {
 }
 
 // The request is attributed to the signed-in user by the backend, so the form
-// only collects dates and a reason: name, email, days and status in the body
-// are rejected with a 400.
+// collects dates, a reason and the urgency flag: name, email, days and status
+// in the body are rejected with a 400.
+// `argency` is the API's field name: 'normal' (unchecked) or 'urgent' (checked).
 const requestSchema = z
   .object({
     startDate: z.string().min(1, 'Start date is required'),
@@ -81,6 +83,7 @@ function EmployeePage() {
     startDate: '',
     endDate: '',
     reason: '',
+    urgent: false,
   });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -95,6 +98,7 @@ function EmployeePage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (submitting) return;
 
     const result = requestSchema.safeParse(form);
     if (!result.success) {
@@ -114,10 +118,11 @@ function EmployeePage() {
         startDate: result.data.startDate,
         endDate: result.data.endDate,
         reason: result.data.reason,
+        argency: form.urgent ? 'urgent' : 'normal',
       });
 
       toast.success('Time-off request submitted successfully!');
-      setForm({ startDate: '', endDate: '', reason: '' });
+      setForm({ startDate: '', endDate: '', reason: '', urgent: false });
       setErrors({});
     } catch (err) {
       toast.error(err.message || 'Failed to submit request');
@@ -129,9 +134,12 @@ function EmployeePage() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-xl">
-        <Card>
-          <CardHeader>
-            <CardTitle>Submit Time-Off Request</CardTitle>
+        <Card className="border border-border shadow-xl">
+          <CardHeader className="text-center">
+            <CardTitle className="flex items-center justify-center gap-2">
+              <CalendarPlusIcon className="size-4 text-primary" />
+              Submit Time-Off Request
+            </CardTitle>
             <CardDescription>
               Weekdays only — Saturday and Sunday don&apos;t count toward your balance.
             </CardDescription>
@@ -181,8 +189,26 @@ function EmployeePage() {
                 />
                 <FieldError message={errors.reason} />
               </div>
+
+              <div className="flex items-start gap-3 pt-1">
+                <Checkbox
+                  id="urgent"
+                  checked={form.urgent}
+                  onCheckedChange={(checked) =>
+                    setForm((prev) => ({ ...prev, urgent: checked === true }))
+                  }
+                  className="mt-0.5"
+                />
+                <Label
+                  htmlFor="urgent"
+                  className="cursor-pointer text-sm font-normal leading-relaxed text-muted-foreground"
+                >
+                  Check this if you need the time off urgently — the request
+                  will be flagged as urgent for your admin.
+                </Label>
+              </div>
             </CardContent>
-            <div className="px-6 pb-6 pt-3">
+            <div className="px-6 pb-6 pt-4">
               <Button type="submit" className="w-full" disabled={submitting}>
                 {submitting && <Loader2Icon className="animate-spin" />}
                 Submit Request

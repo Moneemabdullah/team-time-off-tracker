@@ -21,6 +21,9 @@ const addEmployeeSchema = z.object({
     .trim()
     .min(1, 'Email is required')
     .pipe(z.email('Enter a valid email address')),
+  // POST /admin/users requires a password; it is hashed server-side and
+  // emailed to the employee with their login details.
+  password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
 function FieldError({ message }) {
@@ -30,7 +33,7 @@ function FieldError({ message }) {
 
 function AddEmployeePage() {
   const addEmployee = useAdminStore((s) => s.addEmployee);
-  const [form, setForm] = useState({ name: '', email: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [errors, setErrors] = useState({});
   const [adding, setAdding] = useState(false);
 
@@ -42,6 +45,7 @@ function AddEmployeePage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (adding) return;
 
     const result = addEmployeeSchema.safeParse(form);
     if (!result.success) {
@@ -58,7 +62,7 @@ function AddEmployeePage() {
     const ok = await addEmployee(result.data);
     setAdding(false);
     if (ok) {
-      setForm({ name: '', email: '' });
+      setForm({ name: '', email: '', password: '' });
       setErrors({});
     }
   }
@@ -81,7 +85,8 @@ function AddEmployeePage() {
               New Employee
               </div>
                  <CardDescription>
-              The employee starts with a default annual leave balance.
+              Starts with a 20-day balance; login credentials are emailed to
+              the employee.
             </CardDescription>
             </CardTitle>
          
@@ -118,6 +123,23 @@ function AddEmployeePage() {
                   aria-invalid={!!errors.email}
                 />
                 <FieldError message={errors.email} />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="empPassword">Password
+                   <span className="-ml-1 text-destructive">*</span>
+                </Label>
+                <Input
+                  id="empPassword"
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={form.password}
+                  onChange={handleChange}
+                  placeholder="At least 8 characters"
+                  aria-invalid={!!errors.password}
+                />
+                <FieldError message={errors.password} />
               </div>
             </CardContent>
             <div className="px-6 pb-6 pt-3">

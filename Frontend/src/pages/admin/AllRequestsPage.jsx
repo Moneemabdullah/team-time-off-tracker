@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Loader2Icon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -9,7 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import DashboardLayout from '@/components/layout/DashboardLayout';
-import { statusBadgeClass } from '@/lib/status';
+import { statusBadgeClass, urgencyBadgeClass } from '@/lib/status';
 import { useAdminStore } from '@/store/adminStore';
 
 function AllRequestsPage() {
@@ -20,6 +21,7 @@ function AllRequestsPage() {
   const setNameFilter = useAdminStore((s) => s.setNameFilter);
   const loadData = useAdminStore((s) => s.loadData);
   const updateRequestStatus = useAdminStore((s) => s.updateRequestStatus);
+  const updatingId = useAdminStore((s) => s.updatingId);
 
   useEffect(() => {
     setStatusFilter('');
@@ -56,6 +58,7 @@ function AllRequestsPage() {
                   <TableHead>End Date</TableHead>
                   <TableHead>Reason</TableHead>
                   <TableHead>Days</TableHead>
+                  <TableHead>Urgency</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -63,13 +66,14 @@ function AllRequestsPage() {
               <TableBody>
                 {requests.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                      No requests found
+                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                      No leave requests found
                     </TableCell>
                   </TableRow>
                 ) : (
                   requests.map((req) => {
                     const status = (req.status || '').toUpperCase();
+                    const urgency = (req.urgency || 'normal').toUpperCase();
                     const isPending = status === 'PENDING';
                     return (
                       <TableRow key={req.id}>
@@ -85,6 +89,13 @@ function AllRequestsPage() {
                         <TableCell>{req.days}</TableCell>
                         <TableCell>
                           <span
+                            className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium ${urgencyBadgeClass(urgency)}`}
+                          >
+                            {urgency}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span
                             className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(status)}`}
                           >
                             {status}
@@ -96,15 +107,23 @@ function AllRequestsPage() {
                               <Button
                                 size="sm"
                                 className="bg-green-600 text-white hover:bg-green-700"
+                                disabled={!!updatingId}
                                 onClick={() => updateRequestStatus(req.id, 'APPROVED')}
                               >
+                                {updatingId === req.id && (
+                                  <Loader2Icon className="animate-spin" />
+                                )}
                                 Approve
                               </Button>
                               <Button
                                 size="sm"
                                 variant="destructive"
+                                disabled={!!updatingId}
                                 onClick={() => updateRequestStatus(req.id, 'REJECTED')}
                               >
+                                {updatingId === req.id && (
+                                  <Loader2Icon className="animate-spin" />
+                                )}
                                 Reject
                               </Button>
                             </div>

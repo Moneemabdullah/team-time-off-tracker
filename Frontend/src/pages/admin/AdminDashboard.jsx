@@ -71,6 +71,7 @@ function AdminDashboard() {
 
   async function handleReassign(e) {
     e.preventDefault();
+    if (reassigning) return;
 
     if (leaveNumber.trim() === '') {
       toast.error('Enter a number of days');

@@ -6,3 +6,11 @@ export function statusBadgeClass(status) {
   };
   return styles[(status || '').toUpperCase()] || 'bg-muted text-muted-foreground';
 }
+
+export function urgencyBadgeClass(argency) {
+  const styles = {
+    URGENT: 'bg-orange-100 text-orange-800',
+    NORMAL: 'bg-muted text-muted-foreground',
+  };
+  return styles[(argency || '').toUpperCase()] || styles.NORMAL;
+}
