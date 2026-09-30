@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/table';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { StatCard } from '@/components/StatCard';
+import { displayName } from '@/lib/chatCodec';
 import { useAdminStore } from '@/store/adminStore';
 
 const PAGE_SIZE = 10;
@@ -36,7 +37,7 @@ function AllEmployeesPage() {
     const q = query.trim().toLowerCase();
     if (!q) return true;
     return (
-      (emp.name || '').toLowerCase().includes(q) ||
+      displayName(emp.name || '').toLowerCase().includes(q) ||
       (emp.email || '').toLowerCase().includes(q)
     );
   });
@@ -137,7 +138,7 @@ function AllEmployeesPage() {
                     pageItems.map((emp) => (
                       <TableRow key={emp.id} className="hover:bg-muted/40">
                         <TableCell className="font-medium text-foreground">
-                          {emp.name}
+                          {displayName(emp.name)}
                         </TableCell>
                         <TableCell>{emp.email}</TableCell>
                         <TableCell>

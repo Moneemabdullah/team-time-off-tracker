@@ -1,11 +1,14 @@
 import { create } from 'zustand';
 import AxiosInstance, { clearToken, getToken, setToken } from '@/lib/axiosInstance';
+import { displayName } from '@/lib/chatCodec';
 
 function normalizeUser(user) {
   if (!user) return null;
   return {
     id: user.id,
-    name: user.name,
+    // Chat lives inside `name` as JSON once a thread exists; the UI always
+    // shows the unwrapped display name.
+    name: displayName(user.name),
     email: user.email,
     // The API returns 'ADMIN' | 'EMPLOYEE'; the UI uses lowercase roles.
     role: user.role === 'ADMIN' ? 'admin' : 'employee',
@@ -66,5 +69,18 @@ export const useAuthStore = create((set) => ({
   logout: () => {
     clearToken();
     set({ user: null, status: 'unauthenticated' });
+  },
+
+  // Silent profile refresh (keeps `status` untouched so the socket does not
+  // reconnect) — used after a socket push says the balance changed.
+  refreshUser: async () => {
+    if (!getToken()) return;
+    try {
+      const { data } = await AxiosInstance.get('/users/me');
+      set({ user: normalizeUser(data.data) });
+    } catch {
+      // A 401 is handled by the axios interceptor; anything else is retried
+      // by the next fetchMe/login.
+    }
   },
 }));
