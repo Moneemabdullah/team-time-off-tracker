@@ -54,6 +54,7 @@ function toResponse(request: PopulatedRequest): Record<string, unknown> {
     reason: string;
     days: number;
     status: string;
+    argency?: string;
     createdAt?: Date;
     updatedAt?: Date;
   };
@@ -76,6 +77,7 @@ function toResponse(request: PopulatedRequest): Record<string, unknown> {
     reason: doc.reason,
     days: doc.days,
     status: doc.status.toUpperCase(),
+    argency: doc.argency ?? 'normal',
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -98,6 +100,7 @@ async function notifyStatusChange(response: Record<string, unknown>): Promise<vo
       status,
       startDate: response.startDate,
       endDate: response.endDate,
+      argency: response.argency,
       days: response.days,
       reason: response.reason,
       annualLeaveBalance: user.annualLeaveBalance,
@@ -137,7 +140,7 @@ export async function createRequest(input: CreateRequestInput, userId: string) {
     user: userId,
     startDate,
     endDate,
-    argency: input.argency ?? 'low',
+    argency: input.argency ?? 'normal',
     reason: input.reason,
     days,
     status: 'pending',
@@ -194,11 +197,19 @@ export async function getMyRequests(
 /** `GET /admin/requests` — every request, optionally filtered by owner. */
 export async function getAllRequests(query: ListAllRequestsQuery): Promise<PaginatedRequests> {
   const filter: Record<string, unknown> = {};
-  if (query.status) filter.status = query.status;
-  if (query.userId) filter.user = query.userId;
+
+  //return Urgent requests first and then normal requests
+  if (query.status) {
+    filter.status = query.status;
+  }
+
+  if (query.userId) {
+    filter.user = query.userId;
+  }
 
   return paginate(filter, query);
 }
+
 
 export async function updateRequestStatus(
   id: string,

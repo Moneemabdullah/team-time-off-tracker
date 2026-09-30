@@ -20,8 +20,8 @@ const timeOffRequestSchema = new mongoose.Schema(
 
     argency: {
       type: String,
-      enum: ["low", "medium", "high", "urgent"],
-      default: "low",
+      enum: ["normal", "urgent"],
+      default: "normal",
     },
 
     reason: {

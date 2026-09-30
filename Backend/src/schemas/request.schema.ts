@@ -36,8 +36,8 @@ export const createRequestSchema = z
     argency: z
       .string()
       .refine(
-        (value) => ['low', 'medium', 'high', 'urgent'].includes(value.toLowerCase()),
-        'Argency must be one of low, medium, high, urgent'
+        (value) => ['normal', 'urgent'].includes(value.toLowerCase()),
+        'Argency must be one of normal, urgent'
       )
       .transform((value) => value.toLowerCase())
       .optional(),  
