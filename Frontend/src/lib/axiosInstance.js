@@ -4,9 +4,7 @@ import { URLs } from "./URLs";
 const TOKEN_KEY = "token";
 
 const baseURL =
-  import.meta.env.VITE_BACKEND_URI ||
-  import.meta.env.VITE_API_URL ||
-  "http://localhost:5000";
+  import.meta.env.VITE_BACKEND_URI || "http://localhost:5000";
 
 export function getToken() {
   return sessionStorage.getItem(TOKEN_KEY);
@@ -35,10 +33,6 @@ AxiosInstance.interceptors.request.use((config) => {
   return config;
 });
 
-// An expired or revoked token means the session is over: drop it and go to
-// login. Failed logins are left alone so the caller can show the error.
-// The API's `{ success: false, message }` body is copied onto `error.message`
-// so callers can toast `err.message` without inspecting the response.
 AxiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {

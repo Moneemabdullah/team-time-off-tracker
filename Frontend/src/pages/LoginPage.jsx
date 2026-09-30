@@ -40,6 +40,7 @@ function LoginPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (submitting) return;
 
     const result = loginSchema.safeParse(form);
     if (!result.success) {
