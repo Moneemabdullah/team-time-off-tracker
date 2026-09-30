@@ -15,10 +15,11 @@ under concurrency rather than feature breadth.
 
 - **Employee management** — create employees with a unique, lower-cased email address,
   list them, and fetch one by ID.
-- **Leave request creation** — submit a request for a date range with a reason; it is
-  created in `PENDING` state.
-- **Leave request listing and filtering** — employees see only their own requests;
-  admins see all and can filter by `status` and/or `userId`, newest first.
+- **Leave request creation** — submit a request for a date range with a reason and an
+  optional `argency` of `normal` or `urgent`; it is created in `PENDING` state.
+- **Paginated leave request listing** — `GET /requests` returns your own requests;
+  `GET /admin/requests` returns every user's, filterable by `status` and `userId`.
+  Both page with `page` and `limit` and report totals in a `meta` block.
 - **Approve / reject workflow** — move a request from `PENDING` to `APPROVED` or
   `REJECTED`, with guarded state transitions.
 - **Annual leave balance** — every employee starts with 20 days; approval deducts the
@@ -36,6 +37,10 @@ under concurrency rather than feature breadth.
   Employees can only ever see and act on their own leave.
 - **Secure credentials** — passwords are bcrypt-hashed, and the hash is never
   selected into query results or returned by the API.
+- **Employee management (admin only)** — create employees, update or delete accounts,
+  and read the user list. Creating an employee emails them their temporary password.
+- **Email notifications** — credentials on account creation, and approval or rejection
+  notices to the employee. Mailpit captures both locally instead of sending.
 - **Seeded admin** — the first administrator is created from environment variables
   by `npm run seed`, which is safe to run repeatedly.
 - **Swagger / OpenAPI documentation** — interactive API reference at `/api-docs`,
@@ -58,6 +63,7 @@ under concurrency rather than feature breadth.
 | CORS | Cross-origin access for the frontend dev server |
 | jsonwebtoken | JWT signing and verification |
 | bcryptjs | Password hashing |
+| nodemailer + ejs | Outbound mail and `.ejs` templates |
 | Swagger UI / swagger-jsdoc | OpenAPI documentation |
 | dotenv | Environment variables |
 | nodemon + tsx | Development server with reload |
@@ -77,6 +83,8 @@ under concurrency rather than feature breadth.
 - Docker and Docker Compose
 - MongoDB 7 running as a **single-node replica set** (`rs0`), which the approval
   workflow requires for transactions
+- [Mailpit](https://mailpit.axllent.dev/) — local SMTP sink, inbox at
+  **http://localhost:8025**
 
 ---
 
@@ -189,6 +197,9 @@ cp Backend/.env.example Backend/.env
 | `JWT_EXPIRES_IN` | `JWT_EXPIRES_IN=1h` | Optional. The cookie's `Max-Age` follows it. |
 | `CORS_ORIGIN` | `CORS_ORIGIN=http://localhost:5173` | Comma-separated allowed origins. Required in practice: credentialed cookies cannot be combined with a wildcard origin. |
 | `ADMIN_NAME` / `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `ADMIN_EMAIL=admin@example.com` | Used only by `npm run seed`. |
+| `EMAIL_SENDER_SMTP_HOST` / `EMAIL_SENDER_SMTP_PORT` | `EMAIL_SENDER_SMTP_HOST=localhost` | SMTP relay. Defaults target Mailpit on `1025`. Use `mailpit` as the host inside Docker. |
+| `EMAIL_SENDER_SMTP_USER` / `EMAIL_SENDER_SMTP_PASS` | *(blank)* | Leave blank for Mailpit; set both for a real relay. |
+| `EMAIL_SENDER_FROM` | `EMAIL_SENDER_FROM=no-reply@team-time-off-tracker.local` | Sender address on notifications. |
 
 The server exits with a clear message if `MONGODB_URI` or `JWT_SECRET` is missing —
 there is no fallback secret.
@@ -230,6 +241,7 @@ This starts four services:
 | --- | --- | --- | --- |
 | `backend` | built from `Backend/Dockerfile` | Express API | `5000` |
 | `frontend` | built from `Frontend/Dockerfile` | React UI | `3000` |
+| `mailpit` | `axllent/mailpit` | Local SMTP sink and web inbox | `1025`, `8025` |
 | `mongodb` | `mongo:7` | Database, started as a single-node replica set | `27017` |
 | `mongodb-init` | `mongo:7` | Runs `rs.initiate()` once, then exits | — |
 
@@ -290,24 +302,28 @@ The full written reference, including every validation rule and error code, is i
 Every route requires a token except `POST /auth/login` and `GET /health`. Tokens are
 sent as the `authToken` cookie, or as an `Authorization: Bearer` header.
 
-| Method | Endpoint                       | Access    | Description            |
-| ------ | ------------------------------ | --------- | ---------------------- |
-| `POST` | `/auth/login`                  | Public    | Exchange credentials for a JWT (sets the session cookie) |
-| `POST` | `/auth/logout`                 | Any       | Clear the session cookie |
-| `GET`  | `/users/me`                    | Any       | Own profile and balance |
-| `GET`  | `/users`                       | Admin     | List users             |
-| `GET`  | `/users/:id`                   | Admin     | Get one user           |
-| `POST` | `/users/reassign-annual-leave` | Admin     | Add days to every balance |
-| `POST` | `/requests`                    | Any       | Create leave request   |
-| `GET`  | `/requests`                    | Any       | List requests (own, or all for admin) |
-| `PATCH`| `/requests/:id`                | Admin     | Approve/reject request |
+| Method | Endpoint                                | Access | Description                        |
+| ------ | --------------------------------------- | ------ | ---------------------------------- |
+| `POST` | `/auth/login`                           | Public | Exchange credentials for a JWT     |
+| `POST` | `/auth/logout`                          | Any    | Clear the session cookie           |
+| `GET`  | `/requests`                             | Any    | Your own requests, paginated       |
+| `POST` | `/requests`                             | Any    | Create a leave request             |
+| `GET`  | `/users/me`                             | Any    | Own profile and balance            |
+| `GET`  | `/admin/requests`                       | Admin  | All requests, paginated + filters  |
+| `PATCH`| `/admin/requests/:id`                   | Admin  | Approve/reject request             |
+| `GET`  | `/admin/users`                          | Admin  | List users                         |
+| `POST` | `/admin/users`                          | Admin  | Create employee (emails credentials) |
+| `POST` | `/admin/users/reassign-annual-leave`    | Admin  | Add days to every balance          |
+| `GET`  | `/admin/users/:id`                      | Admin  | Get one user                       |
+| `PATCH`| `/admin/users/:id`                      | Admin  | Update user                        |
+| `DELETE`| `/admin/users/:id`                     | Admin  | Delete user                        |
 
-Additional routes:
+List endpoints are paginated with `page` (default 1) and `limit` (default 10, max 100),
+and return pagination metadata in a `meta` object alongside `data`:
 
-| Method | Endpoint      | Description       |
-| ------ | ------------- | ----------------- |
-| `GET`  | `/health`     | Liveness check    |
-| `GET`  | `/api-docs`   | Swagger UI        |
+```json
+{ "success": true, "data": [ ... ], "meta": { "total": 42, "page": 1, "limit": 10, "totalPages": 5 } }
+```
 
 Responses use a consistent envelope:
 
@@ -513,6 +529,15 @@ authentication** and has known defects:
   any real deployment.
 - **Tokens cannot be revoked individually** — there is no signout or deny list, so a
   token stays valid until it expires.
+- **The credentials email carries the password in plain text**, so it transits SMTP and
+  lands in a mailbox. There is no `mustChangePassword` flag yet, so the emailed
+  password stays valid until an admin resets it. Adding one was deliberately left out
+  of this change because it touches the login path.
+- **Email templates resolve from the process working directory** (`<cwd>/src/templates`),
+  because `tsc` does not copy `.ejs` files into `dist/`. Running the server from a
+  different directory will fail to find them.
+- **`GET /users` excludes admins**, so the admin account never appears in the employee
+  list.
 - **Unmatched routes return Express's default HTML 404**, not the `{ success, message }`
   envelope, because the error handler only covers requests that matched a route. A
   client that JSON-parses every response will throw on an unknown path or a wrong

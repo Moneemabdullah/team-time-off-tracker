@@ -152,6 +152,9 @@ inside controllers.
 * A request that spans **zero** working days is rejected with `400`.
 * `startDate` must be **on or after today**; past dates are rejected with `400`.
 * A new request always starts as `PENDING`.
+* Each request carries an **argency** of `normal` or `urgent`, defaulting to
+  `normal`. It is optional on creation, validated on input, and returned by the
+  API.
 * Creating a request does **not** change the balance — that happens on approval.
 * The request is attributed to the **bearer token's user**. The body cannot choose
   the owner: `userId`, `name`, `email`, `days` and `status` are all rejected with
@@ -187,6 +190,7 @@ Any authenticated user. The owner comes from the token.
 | --- | --- | --- | --- |
 | `startDate` | string | yes | `YYYY-MM-DD` |
 | `endDate` | string | yes | `YYYY-MM-DD` |
+| `argency` | string | no | `normal` (default) or `urgent` |
 | `reason` | string | yes | at least 3 characters |
 
 ### Example
@@ -198,6 +202,7 @@ curl -X POST http://localhost:5000/requests \
   -d '{
     "startDate": "2026-10-05",
     "endDate": "2026-10-09",
+    "argency": "urgent",
     "reason": "Family event"
   }'
 ```
@@ -221,6 +226,7 @@ curl -X POST http://localhost:5000/requests \
     "reason": "Family event",
     "days": 5,
     "status": "PENDING",
+    "argency": "urgent",
     "createdAt": "2026-09-29T12:00:00.000Z",
     "updatedAt": "2026-09-29T12:00:00.000Z"
   }
@@ -249,15 +255,15 @@ GET /requests
 * An `EMPLOYEE` receives only their own requests.
 * An `ADMIN` receives all requests and may filter.
 
-### Query parameters (both optional)
+| Query parameter | Values | Default |
+| --- | --- | --- |
+| `status` | `PENDING`, `APPROVED`, `REJECTED` (case-insensitive) | — |
+| `page` | 1-based page number | `1` |
+| `limit` | 1–100 items per page | `10` |
 
-| Parameter | Values |
-| --- | --- |
-| `status` | `PENDING`, `APPROVED`, `REJECTED` (case-insensitive) |
-| `userId` | a 24-character ObjectId — **admin only** |
-
-An employee who passes someone else's `userId` receives `403`; passing their own id
-is allowed and behaves the same as omitting it.
+There is **no `userId` filter here** — this route is always scoped to the caller, so
+passing one is rejected with `400` as an unknown query parameter. For the all-users
+view use `GET /admin/requests`.
 
 ### `200` response
 
@@ -358,6 +364,9 @@ landing at 0.
 
 # User endpoints
 
+Only `GET /users/me` is self-service. Every other user route lives under `/admin` — see
+[Admin endpoints](#admin-endpoints).
+
 ## 4. Get the signed-in user
 
 ```
@@ -379,68 +388,72 @@ Any authenticated user. This is how a client reads its own leave balance.
 }
 ```
 
-## 5. List users
+---
+
+# Admin endpoints
+
+Everything below requires the `ADMIN` role. An authenticated employee receives `403`;
+a missing or invalid token receives `401`. The routes are mounted under `/admin`, so
+none of them share a path with the self-service surface.
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/admin/requests` | Every request, paginated and filterable |
+| `PATCH` | `/admin/requests/:id` | Approve or reject |
+| `GET` | `/admin/users` | List users (admins excluded) |
+| `POST` | `/admin/users` | Create an employee and email their credentials |
+| `POST` | `/admin/users/reassign-annual-leave` | Add days to every balance |
+| `GET` | `/admin/users/:id` | Get one user |
+| `PATCH` | `/admin/users/:id` | Update a user |
+| `DELETE` | `/admin/users/:id` | Delete a user |
+
+## Listing every request
 
 ```
-GET /users
+GET /admin/requests
 ```
 
-**Admin only.** `passwordHash` is never included.
-
-## 6. Get one user
-
-```
-GET /users/:id
-```
-
-**Admin only.** Returns `400` for a malformed id and `404` when the user does not
-exist.
-
-## 7. Reassign annual leave
-
-```
-POST /users/reassign-annual-leave
-```
-
-**Admin only.** Adds a signed number of days to the balance of **every** user.
-
-> This is a bulk operation, not a per-user one. It takes no user identifier, and
-> there is no way to target a single user.
-
-### Request body
-
-| Field | Type | Required | Description |
+| Parameter | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `number` | integer | yes | Signed whole days to add. Positive grants leave, negative removes it. |
+| `status` | string | — | `PENDING`, `APPROVED` or `REJECTED` |
+| `userId` | string | — | Restrict to one user |
+| `page` | integer | `1` | 1-based page number |
+| `limit` | integer | `10` | 1–100; above 100 is rejected with `400` |
 
 ```bash
-curl -X POST http://localhost:5000/users/reassign-annual-leave \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{ "number": 5 }'
+curl "http://localhost:5000/admin/requests?status=PENDING&page=2&limit=20" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 ### `200` response
 
+`meta` sits alongside `data`. Endpoints that do not paginate omit it entirely.
+
 ```json
 {
   "success": true,
-  "message": "Annual leave reassigned successfully",
-  "data": { "updated": 3 }
+  "data": [ { "id": "...", "status": "PENDING", "days": 5 } ],
+  "meta": { "total": 42, "page": 2, "limit": 20, "totalPages": 3 }
 }
 ```
 
-### Errors
+Requesting a page beyond the end returns an empty `data` array with the real `total`
+still reported.
 
-| Code | When |
-| --- | --- |
-| `400` | `number` is not a number, is not a whole number, is zero, or would leave any user negative |
-| `401` | missing, invalid or expired token |
-| `403` | caller is not an admin |
+## Employee management
 
-The input is validated here rather than by a Zod schema, so the checks are strict:
-a quoted `"7"` is rejected rather than coerced, and an operation that would drive
-any user below zero is refused outright instead of clamping.
+`POST /admin/users` takes `name`, `email`, `password` and an optional `role`. The
+balance defaults to 20 and the credentials email is sent; a send failure is logged
+rather than failing the request, because the account already exists by then.
+
+`PATCH /admin/users/:id` accepts any of `name`, `email`, `password`, `role`. It is
+admin-only because `role` can be changed, and demoting the **last remaining** admin is
+rejected with `400`.
+
+`DELETE /admin/users/:id` rejects deleting your own account and deleting the last
+remaining admin, so the system cannot be left with no administrator.
+
+---
 
 ---
 
@@ -584,6 +597,10 @@ needs it.
 | `PORT` | no | Defaults to `5000` |
 | `JWT_EXPIRES_IN` | no | Any `jsonwebtoken` duration, defaults to `1h`. The cookie's `Max-Age` follows it. |
 | `CORS_ORIGIN` | no | Comma-separated allowed origins, defaults to `http://localhost:5173`. Needed because credentialed cookies cannot use a wildcard. |
+| `EMAIL_SENDER_SMTP_HOST` | no | SMTP host, defaults to `localhost` (Mailpit) |
+| `EMAIL_SENDER_SMTP_PORT` | no | SMTP port, defaults to `1025`. Implicit TLS is used only on `465` |
+| `EMAIL_SENDER_SMTP_USER` / `EMAIL_SENDER_SMTP_PASS` | no | Leave blank for Mailpit; set both for a real relay |
+| `EMAIL_SENDER_FROM` | no | Sender address shown in the notification |
 | `ADMIN_NAME` | no | Used by the seed |
 | `ADMIN_EMAIL` | no | Used by the seed |
 | `ADMIN_PASSWORD` | no | Used by the seed, minimum 8 characters |
