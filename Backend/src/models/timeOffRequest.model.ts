@@ -40,7 +40,7 @@ const timeOffRequestSchema = new mongoose.Schema(
     days: {
       type: Number,
       required: [true, "Number of leave days is required"],
-      min: [1, "Leave request must contain at least 1 working day"],
+      min: [1, "Leave request must contain at least 1 leave day (Sunday does not count)"],
     },
   },
   {

@@ -12,7 +12,7 @@ import {
 import { badRequest, conflict, forbidden, notFound } from '../utils/AppError';
 import { sendEmailSafely } from '../utils/emailService';
 import { emitDecisionToUser, emitUrgentToAdmins } from '../socket/emitter';
-import { countWeekdays, parseDateOnly, todayDateOnly, toDateOnlyString } from '../utils/date';
+import { countLeaveDays, parseDateOnly, todayDateOnly, toDateOnlyString } from '../utils/date';
 
 /** A request in one of these states blocks the user's calendar. */
 const BLOCKING_STATUSES: RequestStatus[] = ['pending', 'approved'];
@@ -121,9 +121,9 @@ export async function createRequest(input: CreateRequestInput, userId: string) {
     throw badRequest('Leave requests cannot start in the past');
   }
 
-  const days = countWeekdays(startDate, endDate);
+  const days = countLeaveDays(startDate, endDate);
   if (days === 0) {
-    throw badRequest('Leave request must span at least one working day (Mon-Fri)');
+    throw badRequest('Leave request must span at least one leave day (Sunday does not count)');
   }
 
   const overlapping = await timeOffRequestModel.exists({

@@ -183,7 +183,7 @@
  *     tags: [Requests]
  *     summary: Approve or reject a request (admin only)
  *     description: >
- *       PENDING to APPROVED deducts the working days from the balance.
+ *       PENDING to APPROVED deducts the leave days from the balance.
  *       PENDING to REJECTED changes nothing. APPROVED to REJECTED restores the
  *       deducted days. A REJECTED request is terminal. The balance change and
  *       the status change are applied in a single transaction, and the balance
@@ -560,9 +560,10 @@
  *     description: >
  *       The request is attributed to the user in the bearer token; the body
  *       cannot choose the owner. Always starts as PENDING and does not touch
- *       the balance. Only Monday-Friday count as leave days, so a weekend-only
- *       range is rejected. Past dates and ranges overlapping an existing PENDING
- *       or APPROVED request for the same user are rejected.
+ *       the balance. Leave days are counted inclusively and Sundays are excluded,
+ *       so a range covering only Sundays is rejected. Past dates and ranges
+ *       overlapping an existing PENDING or APPROVED request for the same user are
+ *       rejected.
  *     security:
  *       - cookieAuth: []
  *       - bearerAuth: []
@@ -590,7 +591,7 @@
  *       "400":
  *         description: >
  *           Invalid input, startDate after endDate, a past start date, or a range
- *           containing zero working days
+ *           containing no leave days
  *         content:
  *           application/json:
  *             schema: { $ref: "#/components/schemas/ErrorResponse" }

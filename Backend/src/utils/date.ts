@@ -4,8 +4,8 @@ const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
  * Parses a `YYYY-MM-DD` string as UTC midnight.
  *
  * Every date in this project is treated as a calendar date anchored to UTC.
- * Using UTC consistently on both parse and iteration is what keeps the
- * weekday count free of off-by-one errors.
+ * Using UTC consistently on both parse and iteration is what keeps the day
+ * count free of off-by-one errors.
  */
 export function parseDateOnly(value: string): Date {
   const [year, month, day] = value.split('-').map(Number);
@@ -30,16 +30,22 @@ export function todayDateOnly(): Date {
 }
 
 /**
- * Counts Monday-Friday days in the inclusive range [startDate, endDate].
- * Saturday (6) and Sunday (0) are skipped.
+ * Counts leave days in the inclusive range [startDate, endDate].
+ *
+ * Every calendar day counts as one leave day except Sunday, which is never
+ * deducted. There is no public-holiday or working-calendar handling yet, so a
+ * Saturday is an ordinary leave day.
+ *
+ * The result is computed once when a request is created and stored on the
+ * document, so changing this rule never alters existing requests.
  */
-export function countWeekdays(startDate: Date, endDate: Date): number {
+export function countLeaveDays(startDate: Date, endDate: Date): number {
   let count = 0;
   const cursor = new Date(startDate.getTime());
 
   while (cursor.getTime() <= endDate.getTime()) {
-    const weekday = cursor.getUTCDay();
-    if (weekday !== 0 && weekday !== 6) count += 1;
+    // getUTCDay(): 0 is Sunday, 1 Monday ... 6 Saturday.
+    if (cursor.getUTCDay() !== 0) count += 1;
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
