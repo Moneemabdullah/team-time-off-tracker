@@ -5,7 +5,7 @@ import { sendResponse } from '../shared/sendResponse';
 import { getAuthUser } from '../middleware/auth';
 import {
   createRequestSchema,
-  listRequestsQuerySchema,
+  listMyRequestsQuerySchema,
   updateRequestStatusSchema,
 } from '../schemas/request.schema';
 import * as requestService from '../services/request.service';
@@ -18,10 +18,11 @@ export const createRequest = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { httpStatusCode: 201, success: true, data });
 });
 
-export const getRequests = catchAsync(async (req: Request, res: Response) => {
-  const query = listRequestsQuerySchema.parse(req.query);
-  const data = await requestService.getRequests(query, getAuthUser(req));
-  sendResponse(res, { httpStatusCode: 200, success: true, data });
+export const getMyRequests = catchAsync(async (req: Request, res: Response) => {
+  const query = listMyRequestsQuerySchema.parse(req.query);
+  const { id } = getAuthUser(req);
+  const { items, meta } = await requestService.getMyRequests(id, query);
+  sendResponse(res, { httpStatusCode: 200, success: true, data: items, meta });
 });
 
 export const updateRequestStatus = catchAsync(

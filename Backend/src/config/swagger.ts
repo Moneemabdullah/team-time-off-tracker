@@ -21,6 +21,7 @@ const options: swaggerJsdoc.Options = {
     tags: [
       { name: 'Auth', description: 'Authentication' },
       { name: 'Users', description: 'User records and leave balances' },
+      { name: 'Admin', description: 'Admin-only operations (all mounted under /admin)' },
       { name: 'Requests', description: 'Leave requests and approvals' },
     ],
     components: {
@@ -141,6 +142,16 @@ const options: swaggerJsdoc.Options = {
                 'Rejected if it would leave any user negative.',
               example: 5,
             },
+          },
+        },
+        PaginationMeta: {
+          type: 'object',
+          description: 'Pagination block returned alongside `data` on list endpoints.',
+          properties: {
+            total: { type: 'integer', description: 'Total matching records', example: 42 },
+            page: { type: 'integer', description: 'Current 1-based page', example: 1 },
+            limit: { type: 'integer', description: 'Items per page', example: 10 },
+            totalPages: { type: 'integer', description: 'Pages available at this limit', example: 5 },
           },
         },
         LeaveRequest: {

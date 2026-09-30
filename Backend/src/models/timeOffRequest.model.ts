@@ -18,6 +18,12 @@ const timeOffRequestSchema = new mongoose.Schema(
       required: [true, "End date is required"],
     },
 
+    argency: {
+      type: String,
+      enum: ["normal", "urgent"],
+      default: "normal",
+    },
+
     reason: {
       type: String,
       required: [true, "Reason is required"],

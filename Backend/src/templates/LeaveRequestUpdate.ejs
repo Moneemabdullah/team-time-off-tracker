@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Your leave request was <%= status.toLowerCase() %></title>
+  </head>
+  <body style="margin:0;padding:24px;background:#f4f5f7;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2933;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:8px;">
+      <tr>
+        <td style="padding:24px 28px;border-bottom:1px solid #e4e7eb;">
+          <h1 style="margin:0;font-size:18px;">Team Time-Off Tracker</h1>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:24px 28px;">
+          <p style="margin:0 0 16px;font-size:15px;">Hello <%= name %>,</p>
+          <p style="margin:0 0 20px;font-size:15px;">
+            Your time-off request has been
+            <strong style="color:<%= status === 'APPROVED' ? '#047857' : '#b42318' %>;"><%= status.toLowerCase() %></strong>.
+          </p>
+
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e4e7eb;border-radius:6px;">
+            <tr>
+              <td style="padding:12px 16px;font-size:14px;color:#52606d;width:110px;">Dates</td>
+              <td style="padding:12px 16px;font-size:14px;"><%= startDate %> &rarr; <%= endDate %></td>
+            </tr>
+            <tr>
+              <td style="padding:12px 16px;font-size:14px;color:#52606d;border-top:1px solid #e4e7eb;">Working days</td>
+              <td style="padding:12px 16px;font-size:14px;border-top:1px solid #e4e7eb;"><%= days %></td>
+            </tr>
+            <tr>
+              <td style="padding:12px 16px;font-size:14px;color:#52606d;border-top:1px solid #e4e7eb;">Argency</td>
+              <td style="padding:12px 16px;font-size:14px;border-top:1px solid #e4e7eb;"><%= argency %></td>
+            </tr>
+            <tr>
+              <td style="padding:12px 16px;font-size:14px;color:#52606d;border-top:1px solid #e4e7eb;">Reason</td>
+              <td style="padding:12px 16px;font-size:14px;border-top:1px solid #e4e7eb;"><%= reason %></td>
+            </tr>
+          </table>
+
+          <p style="margin:20px 0 0;font-size:14px;color:#52606d;">
+            <% if (status === 'APPROVED') { %>
+              Your remaining leave balance is now <strong style="color:#1f2933;"><%= annualLeaveBalance %> days</strong>.
+            <% } else if (status === 'REJECTED') { %>
+              No leave has been deducted. Your remaining balance is <strong style="color:#1f2933;"><%= annualLeaveBalance %> days</strong>.
+            <% } %>
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:16px 28px;border-top:1px solid #e4e7eb;font-size:12px;color:#7b8794;">
+          This is an automated message. Please do not reply.
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
