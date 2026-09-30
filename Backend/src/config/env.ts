@@ -36,6 +36,28 @@ export const env = {
     .parse(required('JWT_SECRET')),
   jwtExpiresIn: z.string().default('1h').parse(optional('JWT_EXPIRES_IN', '1h')),
 
+  /**
+   * Outbound mail. Defaults target Mailpit, which runs alongside the stack in
+   * docker-compose and needs no credentials. Point these at a real relay in
+   * production, where a user and password are expected.
+   */
+  emailSender: {
+    host: z.string().min(1).default('localhost').parse(optional('EMAIL_SENDER_SMTP_HOST', 'localhost')),
+    port: z
+      .number()
+      .int()
+      .positive()
+      .default(1025)
+      .parse(Number(optional('EMAIL_SENDER_SMTP_PORT', '1025'))),
+    user: z.string().default('').parse(optional('EMAIL_SENDER_SMTP_USER', '')),
+    password: z.string().default('').parse(optional('EMAIL_SENDER_SMTP_PASS', '')),
+    from: z
+      .string()
+      .min(1)
+      .default('no-reply@team-time-off-tracker.local')
+      .parse(optional('EMAIL_SENDER_FROM', 'no-reply@team-time-off-tracker.local')),
+  },
+
   admin: {
     name: z
       .string()

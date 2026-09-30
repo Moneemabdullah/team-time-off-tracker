@@ -34,3 +34,58 @@ export const reassignAnnualLeave = catchAsync(
     });
   }
 );
+
+
+export const createEmployee = catchAsync(
+  async (req: Request, res: Response) => {
+    const { name, email, password, role } = req.body as {
+      name: string;
+      email: string;
+      password: string;
+      role?: 'EMPLOYEE' | 'ADMIN';
+    };
+    const data = await userService.createUser({ name, email, password, role });
+    sendResponse(res, {
+      httpStatusCode: 201,
+      success: true,
+      message: 'Employee created successfully',
+      data,
+    });
+  }
+);
+
+export const updateById = catchAsync(
+  async (req: Request, res: Response) => {
+    const { name, email, password, role } = req.body as {
+      name?: string;
+      email?: string;
+      password?: string;
+      role?: 'EMPLOYEE' | 'ADMIN';
+    };
+    const data = await userService.updateUser(req.params.id, {
+      name,
+      email,
+      password,
+      role,
+    });
+    sendResponse(res, {
+      httpStatusCode: 200,
+      success: true,
+      message: 'Employee updated successfully',
+      data,
+    });
+  }
+);
+
+export const deleteById = catchAsync(
+  async (req: Request, res: Response) => {
+    const { id } = getAuthUser(req);
+    await userService.deleteUser(req.params.id, id);
+    sendResponse(res, {
+      httpStatusCode: 200,
+      success: true,
+      message: 'Employee deleted successfully',
+    });
+  }
+);
+  
