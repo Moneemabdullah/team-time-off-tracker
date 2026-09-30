@@ -147,9 +147,10 @@ inside controllers.
 ## Leave rules
 
 * Dates are `YYYY-MM-DD` and are treated as **UTC calendar dates** everywhere, which
-  keeps the weekday count free of off-by-one errors.
-* Only **Monday–Friday** count as leave days. Saturdays and Sundays are skipped.
-* A request that spans **zero** working days is rejected with `400`.
+  keeps the day count free of off-by-one errors.
+* Leave days are counted **inclusively**, and **Sundays are excluded**. Every other day,
+  including Saturday, counts as one leave day.
+* A request that spans **zero** leave days — a Sunday-only range — is rejected with `400`.
 * `startDate` must be **on or after today**; past dates are rejected with `400`.
 * A new request always starts as `PENDING`.
 * Each request carries an **argency** of `normal` or `urgent`, defaulting to
@@ -233,14 +234,22 @@ curl -X POST http://localhost:5000/requests \
 }
 ```
 
-`2026-10-05` (Mon) to `2026-10-09` (Fri) is 5 working days, so `days` is `5`.
+The range is inclusive and Sundays do not count:
+
+| Range | Day of week | `days` |
+| --- | --- | --- |
+| `2026-10-05` → `2026-10-09` | Mon → Fri | `5` |
+| `2026-10-08` → `2026-10-12` | Thu → Mon (crosses a Sunday) | `4` |
+| `2026-10-09` → `2026-10-11` | Fri → Sun | `2` |
+| `2026-10-10` → `2026-10-10` | Sat only | `1` |
+| `2026-10-11` → `2026-10-11` | Sun only | `0`, rejected with `400` |
 
 ### Errors
 
 | Code | When |
 | --- | --- |
 | `400` | malformed body, bad date, `reason` too short, or any client-supplied `userId` / `days` / `status` |
-| `400` | `startDate` after `endDate`, a past start date, or zero working days |
+| `400` | `startDate` after `endDate`, a past start date, or zero leave days |
 | `401` | missing, invalid or expired token |
 | `409` | overlaps an existing `PENDING` or `APPROVED` request for the same user |
 

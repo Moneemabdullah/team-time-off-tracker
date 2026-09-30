@@ -23,9 +23,10 @@ under concurrency rather than feature breadth.
 - **Approve / reject workflow** — move a request from `PENDING` to `APPROVED` or
   `REJECTED`, with guarded state transitions.
 - **Annual leave balance** — every employee starts with 20 days; approval deducts the
-  request's working days, and reversing an approval restores them.
-- **Weekday-only leave calculation** — leave days are counted server-side as
-  Monday–Friday only; Saturdays and Sundays are excluded.
+  request's leave days, and reversing an approval restores them.
+- **Sunday-free leave calculation** — leave days are counted server-side across the
+  inclusive date range, with Sundays excluded. Every other day, including Saturday,
+  counts as one leave day.
 - **Overlap validation** — an employee cannot have two overlapping `PENDING` or
   `APPROVED` requests.
 - **Leave balance validation** — approval is rejected if it would push the balance
@@ -152,7 +153,7 @@ team-time-off-tracker/
 │       ├── utils/
 │       │   ├── AppError.ts
 │       │   ├── cookie.ts          # cookie read/write helpers
-│       │   ├── date.ts            # UTC date + weekday calculation
+│       │   ├── date.ts            # UTC date + leave-day calculation
 │       │   ├── emailService.ts    # nodemailer + ejs sending
 │       │   ├── jwt.ts             # JWT sign/verify/decode
 │       │   └── token.ts           # session token + auth cookie
@@ -412,10 +413,10 @@ except a refresh. Full details, including the frontend integration spec, are in
 - Email addresses are **unique** and stored lower-cased.
 - Leave **days are calculated on the server**. A client cannot set `days` or `status`;
   sending either is rejected with `400`.
-- **Only Monday–Friday count.** Saturdays and Sundays are excluded.
-- A range containing **zero working days** is rejected.
+- **Leave days are counted inclusively, excluding Sundays.** Saturday counts.
+- A range containing **zero leave days** — a Sunday-only range — is rejected.
 - A request **cannot start in the past**, and `startDate` cannot be after `endDate`.
-- Dates are treated as **UTC calendar dates** end to end, which keeps the weekday count
+- Dates are treated as **UTC calendar dates** end to end, which keeps the day count
   free of off-by-one errors.
 - A new request is always created as **`PENDING`**.
 - Creating a request **does not change the leave balance** — the balance only moves on
@@ -511,10 +512,10 @@ These were made where the brief left room for interpretation.
   appearing to drop. Rejecting a pending request therefore needs no restoration.
 - **Leave days are calculated entirely on the server.** The client sends only dates and
   a reason; `days` and `status` are never accepted from the request body.
-- **Saturdays and Sundays are excluded**, and the backend rejects a request that spans
-  no working days at all.
+- **Sundays are excluded and every other day counts**, including Saturday. The backend
+  rejects a request that spans no leave days at all, which is a Sunday-only range.
 - **All dates are handled as UTC calendar dates.** Parsing and iteration both use UTC
-  getters, which is what keeps the weekday count from drifting by a day.
+  getters, which is what keeps the day count from drifting by a day.
 - **New employees start with 20 days** of balance, set server-side.
 - **Leave requests reference a `user`, not an `employee`,** and the owner is taken from
   the bearer token rather than the request body. There is no client-supplied user id.
