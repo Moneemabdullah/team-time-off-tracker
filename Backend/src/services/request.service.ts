@@ -11,7 +11,8 @@ import {
 } from '../schemas/request.schema';
 import { badRequest, conflict, forbidden, notFound } from '../utils/AppError';
 import { sendEmailSafely } from '../utils/emailService';
-import { countWeekdays, parseDateOnly, todayDateOnly, toDateOnlyString } from '../utils/date';
+import { emitDecisionToUser, emitUrgentToAdmins } from '../socket/emitter';
+import { countLeaveDays, parseDateOnly, todayDateOnly, toDateOnlyString } from '../utils/date';
 
 /** A request in one of these states blocks the user's calendar. */
 const BLOCKING_STATUSES: RequestStatus[] = ['pending', 'approved'];
@@ -120,9 +121,9 @@ export async function createRequest(input: CreateRequestInput, userId: string) {
     throw badRequest('Leave requests cannot start in the past');
   }
 
-  const days = countWeekdays(startDate, endDate);
+  const days = countLeaveDays(startDate, endDate);
   if (days === 0) {
-    throw badRequest('Leave request must span at least one working day (Mon-Fri)');
+    throw badRequest('Leave request must span at least one leave day (Sunday does not count)');
   }
 
   const overlapping = await timeOffRequestModel.exists({
@@ -146,7 +147,16 @@ export async function createRequest(input: CreateRequestInput, userId: string) {
     status: 'pending',
   });
 
-  return toResponse(await findPopulated(created._id));
+  const response = toResponse(await findPopulated(created._id));
+
+  // Real-time nudge only, and only for urgent leave. Emitted after the write
+  // has committed and never inside a transaction. The admin still fetches the
+  // request over REST, which remains the source of truth.
+  if (response.argency === 'urgent') {
+    emitUrgentToAdmins(response);
+  }
+
+  return response;
 }
 
 /** Employees are always scoped to their own requests; admins may filter. */
@@ -271,6 +281,12 @@ export async function updateRequestStatus(
     // never holds the write open, and never inside the retry loop.
     const updated = toResponse(await findPopulated(objectId));
     await notifyStatusChange(updated);
+
+    // Same rule for the socket: after the commit, and urgent leave only.
+    const owner = updated.user as { id?: string } | undefined;
+    if (updated.argency === 'urgent' && owner?.id) {
+      emitDecisionToUser(owner.id, updated);
+    }
 
     return updated;
   } finally {

@@ -164,7 +164,7 @@ const options: swaggerJsdoc.Options = {
             reason: { type: 'string', example: 'Family event' },
             days: {
               type: 'integer',
-              description: 'Working days (Mon-Fri) counted by the server.',
+              description: 'Leave days counted inclusively by the server, excluding Sundays.',
               example: 5,
             },
             status: { $ref: '#/components/schemas/RequestStatus' },
