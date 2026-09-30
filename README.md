@@ -602,9 +602,12 @@ and status and id handling match the API. Two things remain:
   lands in a mailbox. There is no `mustChangePassword` flag yet, so the emailed
   password stays valid until an admin resets it. Adding one was deliberately left out
   of this change because it touches the login path.
-- **Email templates resolve from the process working directory** (`<cwd>/src/templates`),
-  because `tsc` does not copy `.ejs` files into `dist/`. Running the server from a
-  different directory will fail to find them.
+- **Email templates still resolve from the process working directory**, not from
+  `__dirname`, so starting the server from an unexpected directory will not find them.
+  The Dockerfile copies the `.ejs` files to `dist/templates` and `templatePath` checks
+  `dist/templates` before falling back to `src/templates`, so a compiled server no
+  longer depends on `src/` being present in the image. The fallback is what keeps
+  `npm run dev` working, where there is no `dist/`.
 - **The SMTP transport has no timeout, so an unreachable relay stalls a request for
   about two minutes.** `emailService.ts` sets no `connectionTimeout` or
   `greetingTimeout`, so nodemailer falls back to its 120s default. This is harmless
