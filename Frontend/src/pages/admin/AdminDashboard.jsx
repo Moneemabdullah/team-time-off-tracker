@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/table';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { URLs } from '@/lib/URLs';
+import { displayName } from '@/lib/chatCodec';
 import { statusBadgeClass } from '@/lib/status';
 import { useAdminStore } from '@/store/adminStore';
 
@@ -91,7 +92,7 @@ function AdminDashboard() {
   }
 
   const filtered = requests.filter((req) => {
-    const name = req.user?.name || '';
+    const name = displayName(req.user?.name);
     return name.toLowerCase().includes(nameFilter.toLowerCase());
   });
   const recentRequests = filtered.slice(0, 5);
@@ -265,7 +266,7 @@ function AdminDashboard() {
                       <TableRow key={req.id} className="hover:bg-muted/30">
                         <TableCell>
                           <p className="font-medium text-foreground">
-                            {req.user?.name}
+                            {displayName(req.user?.name)}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {req.user?.email}
@@ -328,7 +329,7 @@ function AdminDashboard() {
                   {recentEmployees.map((emp) => (
                     <TableRow key={emp.id} className="hover:bg-muted/30">
                       <TableCell className="font-medium text-foreground">
-                        {emp.name}
+                        {displayName(emp.name)}
                       </TableCell>
                       <TableCell>{emp.email}</TableCell>
                       <TableCell>

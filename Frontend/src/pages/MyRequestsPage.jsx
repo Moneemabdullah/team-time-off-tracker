@@ -45,6 +45,8 @@ function MyRequestsPage() {
   const [status, setStatus] = useState(''); // '' = all statuses
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Bumped by SocketBridge when a decision lands, so the current page refetches.
+  const [refreshTick, setRefreshTick] = useState(0);
 
   // Page and filter changes go through handlers so loading/error reset in the
   // event handler; the effect body itself only starts the request.
@@ -62,6 +64,14 @@ function MyRequestsPage() {
     setLoading(true);
     setError('');
   }
+
+  useEffect(() => {
+    function onRequestsRefresh() {
+      setRefreshTick((n) => n + 1);
+    }
+    window.addEventListener('requests:refresh', onRequestsRefresh);
+    return () => window.removeEventListener('requests:refresh', onRequestsRefresh);
+  }, []);
 
   // The API always scopes GET /requests to the signed-in user; the :id in the
   // URL is only there so the sidebar link can be built per employee.
@@ -86,7 +96,7 @@ function MyRequestsPage() {
     return () => {
       active = false;
     };
-  }, [page, status]);
+  }, [page, status, refreshTick]);
 
   const rangeStart = meta.total === 0 ? 0 : (page - 1) * meta.limit + 1;
   const rangeEnd = Math.min(page * meta.limit, meta.total);

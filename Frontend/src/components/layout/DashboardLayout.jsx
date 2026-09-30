@@ -7,6 +7,7 @@ import {
   LayoutDashboardIcon,
   LogOutIcon,
   MenuIcon,
+  MessageSquareIcon,
   UserPlusIcon,
   UsersIcon,
   XIcon,
@@ -14,7 +15,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import ChatPanel from '@/components/ChatPanel';
 import { useAuthStore } from '@/store/authStore';
+import { useChatStore } from '@/store/chatStore';
 import { URLs } from '@/lib/URLs';
 
 
@@ -28,6 +31,9 @@ const linkClasses = ({ isActive }) =>
 
 function DashboardLayout({ children }) {
   const user = useAuthStore((s) => s.user);
+  const unread = useChatStore((s) =>
+    s.threads.reduce((total, t) => total + t.unread, 0)
+  );
   const NAV_ITEMS = {
   employee: [
     // `end` so /employee only highlights on the exact path — otherwise it
@@ -171,6 +177,20 @@ function DashboardLayout({ children }) {
             {role === 'admin' ? 'Admin Dashboard' : 'Employee Dashboard'}
           </h1>
           <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="relative"
+              aria-label={unread > 0 ? `Chat (${unread} unread)` : 'Chat'}
+              onClick={() => useChatStore.getState().toggle()}
+            >
+              <MessageSquareIcon />
+              {unread > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground">
+                  {unread > 9 ? '9+' : unread}
+                </span>
+              )}
+            </Button>
             <Badge variant="outline" className="capitalize lg:hidden">
               {role}
             </Badge>
@@ -181,6 +201,7 @@ function DashboardLayout({ children }) {
         </header>
 
         <main className="p-4 lg:p-8">{children}</main>
+        <ChatPanel />
       </div>
     </div>
   );

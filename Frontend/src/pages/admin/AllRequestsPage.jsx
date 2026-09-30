@@ -24,6 +24,7 @@ import {
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { StatCard } from '@/components/StatCard';
 import { formatDate } from '@/lib/format';
+import { displayName } from '@/lib/chatCodec';
 import { statusBadgeClass, urgencyBadgeClass } from '@/lib/status';
 import { useAdminStore } from '@/store/adminStore';
 
@@ -157,7 +158,7 @@ function AllRequestsPage() {
                         <TableRow key={req.id} className="hover:bg-muted/40">
                           <TableCell>
                             <p className="font-medium text-foreground">
-                              {req.user?.name}
+                              {displayName(req.user?.name)}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {req.user?.email}

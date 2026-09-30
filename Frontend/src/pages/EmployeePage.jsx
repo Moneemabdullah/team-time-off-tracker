@@ -18,6 +18,7 @@ import { DateCalendar } from '@/components/DateCalendar';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { formatDate } from '@/lib/format';
 import AxiosInstance from '@/lib/axiosInstance';
+import { useChatStore } from '@/store/chatStore';
 
 function today() {
   return new Date().toISOString().split('T')[0];
@@ -189,7 +190,7 @@ function EmployeePage() {
 
     setSubmitting(true);
     try {
-      await AxiosInstance.post('/requests', {
+      const { data } = await AxiosInstance.post('/requests', {
         startDate: result.data.startDate,
         endDate: result.data.endDate,
         reason: result.data.reason,
@@ -200,6 +201,17 @@ function EmployeePage() {
       setForm({ startDate: '', endDate: '', reason: '', urgent: false });
       setErrors({});
       loadBlockedDays(); // the new range turns red immediately
+
+      // Urgent requests seed the admin chat with context and open the panel,
+      // so follow-up questions happen in the same thread.
+      if (form.urgent) {
+        const created = data?.data || {};
+        void useChatStore.getState().seedUrgent({
+          startDate: created.startDate || result.data.startDate,
+          endDate: created.endDate || result.data.endDate,
+          reason: created.reason || result.data.reason,
+        });
+      }
     } catch (err) {
       console.error(err);
       toast.error(err.message || 'Failed to submit request');
