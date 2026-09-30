@@ -1,4 +1,5 @@
 import ejs from 'ejs';
+import fs from 'fs';
 import nodemailer from 'nodemailer';
 import path from 'path';
 
@@ -32,12 +33,26 @@ interface ISendEmailOptions {
 }
 
 /**
- * Resolved from the process working directory rather than `__dirname`: `tsc`
- * does not copy .ejs files into dist/, so a __dirname-relative path only works
- * under tsx. Works in Docker because the image copies `src` and uses WORKDIR /app.
+ * Resolved from the process working directory rather than `__dirname`, because
+ * the two run modes put the templates in different places:
+ *
+ *   - Compiled (`node dist/server.js`): the image copies them to
+ *     `dist/templates`, so the build output is self-contained.
+ *   - Local dev (`tsx src/server.ts`): there is no `dist/`, so they are only
+ *     in `src/templates`.
+ *
+ * Both are checked so neither mode has to know about the other. If neither
+ * exists the `dist` path is returned, so ejs reports the missing file with the
+ * path it expected rather than this function silently succeeding.
  */
 function templatePath(template: string): string {
-  return path.resolve(process.cwd(), 'src', 'templates', `${template}.ejs`);
+  const file = `${template}.ejs`;
+  const candidates = [
+    path.resolve(process.cwd(), 'dist', 'templates', file),
+    path.resolve(process.cwd(), 'src', 'templates', file),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
 }
 
 export const sendEmail = async ({
