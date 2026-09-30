@@ -1,66 +1,36 @@
-import type { NextFunction, Request, Response } from 'express';
+import { Request, Response } from 'express';
 
+import catchAsync from '../shared/catchAsync';
+import { sendResponse } from '../shared/sendResponse';
 import { getAuthUser } from '../middleware/auth';
 import * as userService from '../services/user.service';
-import { sendError } from './auth.controller';
 
-export async function list(
-  _req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const data = await userService.listUsers();
-    res.status(200).json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-}
+export const list = catchAsync(async (_req: Request, res: Response) => {
+  const data = await userService.listUsers();
+  sendResponse(res, { httpStatusCode: 200, success: true, data });
+});
 
-export async function getById(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const data = await userService.getUserById(req.params.id);
-    res.status(200).json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-}
+export const getById = catchAsync(async (req: Request, res: Response) => {
+  const data = await userService.getUserById(req.params.id);
+  sendResponse(res, { httpStatusCode: 200, success: true, data });
+});
 
 /** Lets a signed-in user read their own profile and balance. */
-export async function getMe(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { id } = getAuthUser(req);
-    const data = await userService.getUserById(id);
-    res.status(200).json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-}
+export const getMe = catchAsync(async (req: Request, res: Response) => {
+  const { id } = getAuthUser(req);
+  const data = await userService.getUserById(id);
+  sendResponse(res, { httpStatusCode: 200, success: true, data });
+});
 
-export async function reassignAnnualLeave(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
+export const reassignAnnualLeave = catchAsync(
+  async (req: Request, res: Response) => {
     const { number } = req.body as { number?: unknown };
     const data = await userService.reassignAnnualLeave(number);
-    res.status(200).json({
+    sendResponse(res, {
+      httpStatusCode: 200,
       success: true,
       message: 'Annual leave reassigned successfully',
       data,
     });
-  } catch (err) {
-    next(err);
   }
-}
-
-export { sendError };
+);

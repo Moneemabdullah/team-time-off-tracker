@@ -24,6 +24,12 @@ export const env = {
   port: z.number().int().positive().default(5000).parse(Number(optional('PORT', '5000'))),
   mongoUri: z.string().min(1).parse(required('MONGODB_URI')),
 
+  /**
+   * Credentialed cookies cannot be combined with a wildcard origin, so the
+   * allowed origin is explicit. Comma-separated for multiple origins.
+   */
+  corsOrigin: z.string().min(1).default('http://localhost:5173').parse(optional('CORS_ORIGIN', 'http://localhost:5173')),
+
   jwtSecret: z
     .string()
     .min(32, 'JWT_SECRET must be at least 32 characters long')
