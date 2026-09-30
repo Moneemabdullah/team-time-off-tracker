@@ -29,8 +29,9 @@ under concurrency rather than feature breadth.
   `APPROVED` requests.
 - **Leave balance validation** — approval is rejected if it would push the balance
   below zero.
-- **JWT authentication** — password login issuing a signed token; every route except
-  login and health requires `Authorization: Bearer <token>`.
+- **JWT authentication** — password login issuing a signed token, delivered as an
+  `HttpOnly` session cookie. Every route except login, logout and health requires it;
+  an `Authorization: Bearer` header is also accepted for non-browser clients.
 - **Role-based authorization** — `EMPLOYEE` and `ADMIN`, enforced by middleware.
   Employees can only ever see and act on their own leave.
 - **Secure credentials** — passwords are bcrypt-hashed, and the hash is never
@@ -117,9 +118,16 @@ team-time-off-tracker/
 │       │   ├── auth.service.ts    # bcrypt + JWT
 │       │   ├── request.service.ts # business rules + transactions
 │       │   └── user.service.ts
+│       ├── shared/
+│       │   ├── catchAsync.ts      # async route handler wrapper
+│       │   ├── errorHandler.ts    # single JSON error handler
+│       │   └── sendResponse.ts    # success envelope helper
 │       ├── utils/
 │       │   ├── AppError.ts
-│       │   └── date.ts            # UTC date + weekday calculation
+│       │   ├── cookie.ts          # cookie read/write helpers
+│       │   ├── date.ts            # UTC date + weekday calculation
+│       │   ├── jwt.ts             # JWT sign/verify/decode
+│       │   └── token.ts           # session token + auth cookie
 │       ├── app.ts
 │       └── server.ts
 ├── Frontend/
@@ -164,6 +172,26 @@ requires your own instance.
 git clone https://github.com/Moneemabdullah/team-time-off-tracker.git
 cd team-time-off-tracker
 ```
+
+### Environment
+
+The backend reads `Backend/.env`. Copy the example and fill in the two required values:
+
+```bash
+cp Backend/.env.example Backend/.env
+```
+
+| Variable | Example | Description |
+| --- | --- | --- |
+| `MONGODB_URI` | `MONGODB_URI=mongodb://localhost:27017/team-time-off-tracker` | **Required.** Use the `mongodb` hostname inside Docker. |
+| `JWT_SECRET` | `JWT_SECRET=` | **Required**, minimum 32 characters. `openssl rand -base64 48` |
+| `PORT` | `PORT=5000` | Optional, defaults to `5000`. |
+| `JWT_EXPIRES_IN` | `JWT_EXPIRES_IN=1h` | Optional. The cookie's `Max-Age` follows it. |
+| `CORS_ORIGIN` | `CORS_ORIGIN=http://localhost:5173` | Comma-separated allowed origins. Required in practice: credentialed cookies cannot be combined with a wildcard origin. |
+| `ADMIN_NAME` / `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `ADMIN_EMAIL=admin@example.com` | Used only by `npm run seed`. |
+
+The server exits with a clear message if `MONGODB_URI` or `JWT_SECRET` is missing —
+there is no fallback secret.
 
 
 ### Create the first admin
@@ -259,11 +287,13 @@ The full written reference, including every validation rule and error code, is i
 
 ## API Overview
 
-Every route requires a bearer token except `POST /auth/login` and `GET /health`.
+Every route requires a token except `POST /auth/login` and `GET /health`. Tokens are
+sent as the `authToken` cookie, or as an `Authorization: Bearer` header.
 
 | Method | Endpoint                       | Access    | Description            |
 | ------ | ------------------------------ | --------- | ---------------------- |
-| `POST` | `/auth/login`                  | Public    | Exchange credentials for a JWT |
+| `POST` | `/auth/login`                  | Public    | Exchange credentials for a JWT (sets the session cookie) |
+| `POST` | `/auth/logout`                 | Any       | Clear the session cookie |
 | `GET`  | `/users/me`                    | Any       | Own profile and balance |
 | `GET`  | `/users`                       | Admin     | List users             |
 | `GET`  | `/users/:id`                   | Admin     | Get one user           |
@@ -426,9 +456,10 @@ These were made where the brief left room for interpretation.
 The backend is complete and verified. The frontend is **not integrated with
 authentication** and has known defects:
 
-- **The frontend sends no `Authorization` header.** Every call will now return
-  `401`. It needs a login step that stores the token and attaches it to each
-  request, which has not been implemented.
+- **The frontend sends no credentials at all.** It has no login step and no
+  `credentials: 'include'` on its requests, so every call now fails — with `401`
+  because no token is sent, and with a CORS error even once one is. It needs a login
+  step plus `credentials: 'include'` on each request.
 - **The frontend still calls the removed `/employees` endpoints.** `AdminPage`
   requests `/employees` and `POST /employees/reassign-annual-leave`; both moved to
   `/users` and are now admin-only.

@@ -10,10 +10,13 @@ Interactive documentation is served at **`/api-docs`**.
 
 ## Authentication
 
-Every route except `POST /auth/login` and `GET /health` requires a bearer token.
+Every route except `POST /auth/login` and `GET /health` requires a token. Tokens are
+sent as a session cookie, with the `Authorization` header accepted as a fallback for
+non-browser clients.
 
 ```http
-Authorization: Bearer <token>
+Cookie: authToken=<token>          # browser, set automatically by login
+Authorization: Bearer <token>      # non-browser clients
 ```
 
 Log in to obtain one:
@@ -25,6 +28,10 @@ curl -X POST http://localhost:5000/auth/login \
 ```
 
 ### `200` response
+
+Also sets an `authToken` cookie (`HttpOnly`, `SameSite=Strict`, `Secure` in production)
+whose `Max-Age` is derived from `JWT_EXPIRES_IN`, so the cookie never outlives the
+token it carries.
 
 ```json
 {
@@ -66,6 +73,30 @@ the token to expire. Deleting a user invalidates their tokens at once.
 
 An unknown email and a wrong password return the same `401` with the same message,
 so the endpoint cannot be used to discover which accounts exist.
+
+---
+
+## Logging out
+
+```
+POST /auth/logout
+```
+
+Clears the `authToken` cookie. The JWT itself is **not** revoked, so any copy held
+elsewhere — an `Authorization` header, for instance — stays valid until it expires.
+
+## Calling from a browser
+
+Credentialed cookies cannot be combined with a wildcard origin, so the allowed origins
+are listed explicitly in `CORS_ORIGIN` (comma-separated). A browser client must also
+send credentials on every request:
+
+```js
+fetch('http://localhost:5000/requests', { credentials: 'include' })
+```
+
+A request without `credentials: 'include'` will be rejected by CORS even though the
+cookie is present.
 
 ---
 
@@ -469,9 +500,10 @@ Things that are true today and worth knowing before extending the API.
 - **Login is not rate limited.** Passwords are compared with bcrypt, which is slow by
   design, but there is no lockout or throttling, so credentials can still be guessed.
 
-- **Tokens cannot be revoked individually.** Signout is not implemented; a token stays
-  valid until it expires. Deleting a user does invalidate their tokens, and a role
-  change takes effect immediately, but there is no per-token deny list.
+- **Tokens cannot be revoked individually.** `POST /auth/logout` clears the cookie but
+  does not revoke the JWT, so any copy held elsewhere stays valid until it expires.
+  Deleting a user does invalidate their tokens, and a role change takes effect
+  immediately, but there is no per-token deny list.
 
 - **Unmatched routes return HTML, not the JSON envelope.** The error handler is mounted
   after the routers, so it covers errors thrown from a matched route but not requests
@@ -550,7 +582,8 @@ needs it.
 | `MONGODB_URI` | yes | MongoDB connection string |
 | `JWT_SECRET` | yes | Token signing key, minimum 32 characters |
 | `PORT` | no | Defaults to `5000` |
-| `JWT_EXPIRES_IN` | no | Any `jsonwebtoken` duration, defaults to `1h` |
+| `JWT_EXPIRES_IN` | no | Any `jsonwebtoken` duration, defaults to `1h`. The cookie's `Max-Age` follows it. |
+| `CORS_ORIGIN` | no | Comma-separated allowed origins, defaults to `http://localhost:5173`. Needed because credentialed cookies cannot use a wildcard. |
 | `ADMIN_NAME` | no | Used by the seed |
 | `ADMIN_EMAIL` | no | Used by the seed |
 | `ADMIN_PASSWORD` | no | Used by the seed, minimum 8 characters |

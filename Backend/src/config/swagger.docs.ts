@@ -7,6 +7,13 @@
  *       scheme: bearer
  *       bearerFormat: JWT
  *       description: Paste the `token` returned by `POST /auth/login`.
+ *     cookieAuth:
+ *       type: apiKey
+ *       in: cookie
+ *       name: authToken
+ *       description: >
+ *         Session cookie set by `POST /auth/login`, sent automatically by a
+ *         browser. The `Authorization` header is also accepted.
  */
 
 /**
@@ -20,7 +27,9 @@
  *       The only route that does not require a token. Returns a signed JWT and
  *       the authenticated user. An unknown email and a wrong password produce
  *       the same `401` so the endpoint cannot be used to discover accounts.
- *       Use the **Authorize** button with the returned token to call the other routes.
+ *       Also sets an httpOnly `authToken` cookie, so a browser is authenticated
+ *       immediately without handling the token. Use the **Authorize** button
+ *       with the returned token for non-browser clients.
  *     requestBody:
  *       required: true
  *       content:
@@ -55,12 +64,34 @@
 
 /**
  * @openapi
+ * /auth/logout:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Clear the session cookie
+ *     description: >
+ *       Clears the `authToken` cookie. The token itself is not revoked, so any
+ *       copy held elsewhere (for example an `Authorization` header) stays valid
+ *       until it expires.
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     responses:
+ *       "200":
+ *         description: Session cookie cleared
+ *         content:
+ *           application/json:
+ *             schema: { $ref: "#/components/schemas/SuccessResponse" }
+ */
+
+/**
+ * @openapi
  * /users/me:
  *   get:
  *     tags: [Users]
  *     summary: Get the signed-in user
  *     description: Lets any authenticated user read their own profile and leave balance.
  *     security:
+ *       - cookieAuth: []
  *       - bearerAuth: []
  *     responses:
  *       "200":
@@ -88,6 +119,7 @@
  *     summary: List users
  *     description: Admin only. `passwordHash` is never included.
  *     security:
+ *       - cookieAuth: []
  *       - bearerAuth: []
  *     responses:
  *       "200":
@@ -122,6 +154,7 @@
  *     summary: Get one user
  *     description: Admin only.
  *     security:
+ *       - cookieAuth: []
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
@@ -175,6 +208,7 @@
  *       removes it. The request is rejected outright if the change would leave
  *       any user with a negative balance.
  *     security:
+ *       - cookieAuth: []
  *       - bearerAuth: []
  *     requestBody:
  *       required: true
@@ -231,6 +265,7 @@
  *       range is rejected. Past dates and ranges overlapping an existing PENDING
  *       or APPROVED request for the same user are rejected.
  *     security:
+ *       - cookieAuth: []
  *       - bearerAuth: []
  *     requestBody:
  *       required: true
@@ -277,6 +312,7 @@
  *       An `EMPLOYEE` only ever receives their own requests; passing another
  *       `userId` returns `403`. An `ADMIN` receives all requests and may filter.
  *     security:
+ *       - cookieAuth: []
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
@@ -335,6 +371,7 @@
  *       Requires MongoDB running as a replica set; the bundled docker-compose.yml
  *       provides a single-node replica set automatically.
  *     security:
+ *       - cookieAuth: []
  *       - bearerAuth: []
  *     parameters:
  *       - in: path

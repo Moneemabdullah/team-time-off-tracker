@@ -1,8 +1,11 @@
 import type { NextFunction, Request, Response } from 'express';
 
+import { env } from '../config/env';
 import { userModel, type UserRole } from '../models/user.model';
-import { verifyToken } from '../services/auth.service';
 import { forbidden, unauthorized } from '../utils/AppError';
+import { cookieUtils } from '../utils/cookie';
+import { jwtUtils } from '../utils/jwt';
+import { AUTH_COOKIE } from '../utils/token';
 
 export type AuthUser = {
   id: string;
@@ -17,7 +20,13 @@ export function getAuthUser(req: Request): AuthUser {
   return req.user;
 }
 
-function readBearerToken(req: Request): string {
+/** Cookie first, then the Authorization header, so browsers and API clients both work. */
+function readToken(req: Request): string {
+  const fromCookie = cookieUtils.getCookie(req, AUTH_COOKIE);
+  if (fromCookie) {
+    return fromCookie;
+  }
+
   const header = req.headers.authorization;
   if (!header) {
     throw unauthorized('Authentication required');
@@ -32,8 +41,8 @@ function readBearerToken(req: Request): string {
 }
 
 /**
- * Verifies the bearer token and confirms the user still exists, so a token for
- * a deleted account cannot keep working until it expires.
+ * Verifies the token and confirms the user still exists, so a token for a
+ * deleted account cannot keep working until it expires.
  */
 export async function requireAuth(
   req: Request,
@@ -41,10 +50,21 @@ export async function requireAuth(
   next: NextFunction
 ): Promise<void> {
   try {
-    const token = readBearerToken(req);
-    const { sub, role } = verifyToken(token);
+    const token = readToken(req);
 
-    const user = await userModel.findById(sub);
+    const result = jwtUtils.verifyToken(token, env.jwtSecret);
+    // Expired, tampered and malformed tokens are all rejected the same way, so
+    // the response cannot be used to probe why a token failed.
+    if (!result.success) {
+      throw unauthorized('Invalid or expired token');
+    }
+
+    const subject = (result.data as { sub?: unknown } | null)?.sub;
+    if (typeof subject !== 'string') {
+      throw unauthorized('Invalid or expired token');
+    }
+
+    const user = await userModel.findById(subject);
     if (!user) {
       throw unauthorized('Invalid or expired token');
     }

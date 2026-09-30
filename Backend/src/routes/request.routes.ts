@@ -7,8 +7,8 @@ const router = Router();
 
 router.use(requireAuth);
 
-router.post('/', requestController.createRequest);
-router.get('/', requestController.getRequests);
+router.post('/',requireAuth, requestController.createRequest);
+router.get('/',requireAuth, requestController.getRequests);
 router.patch('/:id', requireAdmin, requestController.updateRequestStatus);
 
 export default router;

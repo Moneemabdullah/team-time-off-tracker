@@ -31,6 +31,14 @@ const options: swaggerJsdoc.Options = {
           bearerFormat: 'JWT',
           description: 'Paste the `token` returned by `POST /auth/login`.',
         },
+        cookieAuth: {
+          type: 'apiKey',
+          in: 'cookie',
+          name: 'authToken',
+          description:
+            'Session cookie set by `POST /auth/login`. Sent automatically by a browser. ' +
+            'The `Authorization` header is also accepted for non-browser clients.',
+        },
       },
       schemas: {
         SuccessResponse: {
