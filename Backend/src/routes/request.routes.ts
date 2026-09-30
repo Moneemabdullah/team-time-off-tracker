@@ -1,14 +1,14 @@
 import { Router } from 'express';
 
-import { requireAdmin, requireAuth } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import * as requestController from '../controllers/request.controller';
 
 const router = Router();
 
 router.use(requireAuth);
 
-router.post('/',requireAuth, requestController.createRequest);
-router.get('/',requireAuth, requestController.getRequests);
-router.patch('/:id', requireAdmin, requestController.updateRequestStatus);
+// Scoped to the caller. The all-requests view lives at /admin/requests.
+router.get('/', requestController.getMyRequests);
+router.post('/', requestController.createRequest);
 
 export default router;
