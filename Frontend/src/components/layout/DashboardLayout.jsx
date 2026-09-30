@@ -14,16 +14,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useAuthStore } from '@/store/authStore';
+import { URLs } from '@/lib/URLs';
 
-const NAV_ITEMS = {
-  employee: [{ to: '/employee', label: 'New Request', icon: CalendarPlusIcon }],
-  admin: [
-    { to: '/admin', label: 'Dashboard', icon: LayoutDashboardIcon, end: true },
-    { to: '/admin/employees', label: 'All Employees', icon: UsersIcon },
-    { to: '/admin/requests', label: 'All Requests', icon: InboxIcon },
-    { to: '/admin/add-employee', label: 'Add Employee', icon: UserPlusIcon },
-  ],
-};
+
 
 const linkClasses = ({ isActive }) =>
   `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
@@ -33,8 +26,23 @@ const linkClasses = ({ isActive }) =>
   }`;
 
 function DashboardLayout({ children }) {
-  const [open, setOpen] = useState(false);
   const user = useAuthStore((s) => s.user);
+  const NAV_ITEMS = {
+  employee: [{ to: URLs.EMPLOYEE, label: 'New Request', icon: CalendarPlusIcon },
+    {
+    to: `${URLs.EMPLOYEE_REQUESTS.replace(':id', user.id)}`,
+    label: 'My Requests',
+    icon: InboxIcon,
+  },
+  ],
+  admin: [
+    { to: URLs.ADMIN, label: 'Dashboard', icon: LayoutDashboardIcon, end: true },
+    { to: URLs.ALL_EMPLOYEES, label: 'All Employees', icon: UsersIcon },
+    { to: URLs.ALL_REQUESTS, label: 'All Requests', icon: InboxIcon },
+    { to: URLs.ADD_EMPLOYEE, label: 'Add Employee', icon: UserPlusIcon },
+  ],
+};
+  const [open, setOpen] = useState(false);
   const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
 
@@ -43,7 +51,7 @@ function DashboardLayout({ children }) {
 
   function handleLogout() {
     logout();
-    navigate('/login', { replace: true });
+    navigate(URLs.LOGIN, { replace: true });
   }
 
   return (

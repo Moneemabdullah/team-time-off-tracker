@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import toast from 'react-hot-toast';
-import { apiRequest } from '@/lib/api';
+import AxiosInstance from '@/lib/axiosInstance';
+
+// The API lists every account; the dashboard and "All Employees" page are
+// about the team, so admins are left out.
+const asTeam = (users) => (users || []).filter((u) => u.role !== 'ADMIN');
 
 export const useAdminStore = create((set, get) => ({
   requests: [],
@@ -17,16 +21,16 @@ export const useAdminStore = create((set, get) => ({
     const { statusFilter } = get();
     set({ loading: true, error: '' });
     try {
-      const params = new URLSearchParams();
-      if (statusFilter) params.append('status', statusFilter);
-
-      const qs = params.toString() ? `?${params.toString()}` : '';
-      const [reqs, emps] = await Promise.all([
-        apiRequest(`/requests${qs}`),
-        apiRequest('/employees'),
+      const [reqs, users] = await Promise.all([
+        AxiosInstance.get('/requests', {
+          params: statusFilter ? { status: statusFilter } : {},
+        }),
+        AxiosInstance.get('/users'),
       ]);
-      console.log('Fetched requests:', reqs);
-      set({ requests: reqs, employees: emps });
+      set({
+        requests: reqs.data.data || [],
+        employees: asTeam(users.data.data),
+      });
     } catch (err) {
       set({ error: err.message || 'Failed to load data' });
     } finally {
@@ -36,8 +40,8 @@ export const useAdminStore = create((set, get) => ({
 
   refreshEmployees: async () => {
     try {
-      const emps = await apiRequest('/employees');
-      set({ employees: emps });
+      const { data } = await AxiosInstance.get('/users');
+      set({ employees: asTeam(data.data) });
     } catch {
       // keep the current list if the refresh fails
     }
@@ -45,12 +49,11 @@ export const useAdminStore = create((set, get) => ({
 
   updateRequestStatus: async (id, status) => {
     try {
-      const updated = await apiRequest(`/requests/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status }),
-      });
+      const { data } = await AxiosInstance.patch(`/requests/${id}`, { status });
       set((state) => ({
-        requests: state.requests.map((r) => (r.id === id ? updated : r)),
+        requests: state.requests.map((r) =>
+          r.id === id ? { ...r, ...data.data } : r
+        ),
       }));
       toast.success(`Request ${status.toLowerCase()} successfully`);
       get().refreshEmployees();
@@ -63,10 +66,7 @@ export const useAdminStore = create((set, get) => ({
 
   reassignAnnualLeave: async (number) => {
     try {
-      await apiRequest('/employees/reassign-annual-leave', {
-        method: 'POST',
-        body: JSON.stringify({ number }),
-      });
+      await AxiosInstance.post('/users/reassign-annual-leave', { number });
       toast.success('Annual leave reassigned successfully');
       get().refreshEmployees();
       return true;
@@ -78,10 +78,7 @@ export const useAdminStore = create((set, get) => ({
 
   addEmployee: async ({ name, email }) => {
     try {
-      await apiRequest('/employees', {
-        method: 'POST',
-        body: JSON.stringify({ name, email }),
-      });
+      await AxiosInstance.post('/employees', { name, email });
       toast.success('Employee added successfully');
       get().refreshEmployees();
       return true;

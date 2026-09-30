@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuthStore } from '@/store/authStore';
+import { URLs } from '@/lib/URLs';
 
 const loginSchema = z.object({
   email: z
@@ -55,7 +56,9 @@ function LoginPage() {
     setSubmitting(true);
     try {
       const user = await login(result.data.email, result.data.password);
-      navigate(user.role === 'admin' ? '/admin' : '/employee', { replace: true });
+      navigate(user.role === 'admin' ? URLs.ADMIN : URLs.EMPLOYEE, {
+        replace: true,
+      });
     } catch (err) {
       toast.error(err.message || 'Login failed');
     } finally {

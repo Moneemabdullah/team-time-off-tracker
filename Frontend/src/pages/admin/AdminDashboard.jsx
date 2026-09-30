@@ -13,9 +13,7 @@ import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
-  CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -35,6 +33,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import { URLs } from '@/lib/URLs';
 import { statusBadgeClass } from '@/lib/status';
 import { useAdminStore } from '@/store/adminStore';
 
@@ -91,7 +90,7 @@ function AdminDashboard() {
   }
 
   const filtered = requests.filter((req) => {
-    const name = req.employee?.name || '';
+    const name = req.user?.name || '';
     return name.toLowerCase().includes(nameFilter.toLowerCase());
   });
   const recentRequests = filtered.slice(0, 5);
@@ -225,8 +224,8 @@ function AdminDashboard() {
                 {statusCounts.REJECTED} rejected
               </Badge>
             </div>
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/admin/requests">
+            <Button className='w-max ml-auto' variant="outline" size="sm" asChild>
+              <Link to={URLs.ALL_REQUESTS}>
                 View all
                 <ArrowRightIcon />
               </Link>
@@ -257,7 +256,7 @@ function AdminDashboard() {
                         colSpan={5}
                         className="h-24 text-center text-muted-foreground"
                       >
-                        No requests found
+                        No leave requests found
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -265,10 +264,10 @@ function AdminDashboard() {
                       <TableRow key={req.id} className="hover:bg-muted/30">
                         <TableCell>
                           <p className="font-medium text-foreground">
-                            {req.employee?.name}
+                            {req.user?.name}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {req.employee?.email}
+                            {req.user?.email}
                           </p>
                         </TableCell>
                         <TableCell>{req.startDate?.split('T')[0]}</TableCell>
@@ -301,8 +300,8 @@ function AdminDashboard() {
             <Badge className="bg-primary/10 text-primary hover:bg-primary/10">
               {employees.length} total
             </Badge>
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/admin/employees">
+            <Button className='ml-auto w-max' variant="outline" size="sm" asChild>
+              <Link to={URLs.ALL_EMPLOYEES}>
                 View all
                 <ArrowRightIcon />
               </Link>

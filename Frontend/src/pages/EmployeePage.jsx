@@ -14,20 +14,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import DashboardLayout from '@/components/layout/DashboardLayout';
-import { apiRequest } from '@/lib/api';
+import AxiosInstance from '@/lib/axiosInstance';
 
 function today() {
   return new Date().toISOString().split('T')[0];
 }
 
+// The request is attributed to the signed-in user by the backend, so the form
+// only collects dates and a reason: name, email, days and status in the body
+// are rejected with a 400.
 const requestSchema = z
   .object({
-    name: z.string().trim().min(3, 'Name must be at least 3 characters'),
-    email: z
-      .string()
-      .trim()
-      .min(1, 'Email is required')
-      .pipe(z.email('Enter a valid email address')),
     startDate: z.string().min(1, 'Start date is required'),
     endDate: z.string().min(1, 'End date is required'),
     reason: z.string().trim().min(3, 'Reason must be at least 3 characters'),
@@ -81,8 +78,6 @@ function FieldError({ message }) {
 
 function EmployeePage() {
   const [form, setForm] = useState({
-    name: '',
-    email: '',
     startDate: '',
     endDate: '',
     reason: '',
@@ -115,19 +110,14 @@ function EmployeePage() {
 
     setSubmitting(true);
     try {
-      await apiRequest('/requests', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: result.data.name,
-          email: result.data.email,
-          startDate: result.data.startDate,
-          endDate: result.data.endDate,
-          reason: result.data.reason,
-        }),
+      await AxiosInstance.post('/requests', {
+        startDate: result.data.startDate,
+        endDate: result.data.endDate,
+        reason: result.data.reason,
       });
 
       toast.success('Time-off request submitted successfully!');
-      setForm({ name: '', email: '', startDate: '', endDate: '', reason: '' });
+      setForm({ startDate: '', endDate: '', reason: '' });
       setErrors({});
     } catch (err) {
       toast.error(err.message || 'Failed to submit request');
@@ -148,34 +138,6 @@ function EmployeePage() {
           </CardHeader>
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Employee Name</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  type="text"
-                  value={form.name}
-                  onChange={handleChange}
-                  placeholder="Enter your name"
-                  aria-invalid={!!errors.name}
-                />
-                <FieldError message={errors.name} />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="email">Employee Email</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={form.email}
-                  onChange={handleChange}
-                  placeholder="you@company.com"
-                  aria-invalid={!!errors.email}
-                />
-                <FieldError message={errors.email} />
-              </div>
-
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="startDate">Start Date</Label>

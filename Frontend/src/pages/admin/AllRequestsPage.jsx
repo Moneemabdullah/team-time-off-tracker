@@ -74,9 +74,9 @@ function AllRequestsPage() {
                     return (
                       <TableRow key={req.id}>
                         <TableCell>
-                          <p className="font-medium text-foreground">{req.employee?.name}</p>
+                          <p className="font-medium text-foreground">{req.user?.name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {req.employee?.email}
+                            {req.user?.email}
                           </p>
                         </TableCell>
                         <TableCell>{req.startDate?.split('T')[0]}</TableCell>
