@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
-import { CalendarPlusIcon, Loader2Icon } from 'lucide-react';
+import { CalendarIcon, CalendarPlusIcon, Loader2Icon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -10,11 +10,13 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { DateCalendar } from '@/components/DateCalendar';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import { formatDate } from '@/lib/format';
 import AxiosInstance from '@/lib/axiosInstance';
 
 function today() {
@@ -78,6 +80,46 @@ function FieldError({ message }) {
   return <p className="text-xs text-destructive">{message}</p>;
 }
 
+// Marks every day from start..end as requested ('YYYY-MM-DD' keys).
+function addDateRange(set, start, end) {
+  const current = new Date(`${String(start).split('T')[0]}T00:00:00`);
+  const last = new Date(`${String(end).split('T')[0]}T00:00:00`);
+  while (current <= last) {
+    set.add(
+      `${current.getFullYear()}-${pad2(current.getMonth() + 1)}-${pad2(current.getDate())}`
+    );
+    current.setDate(current.getDate() + 1);
+  }
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+// Module-level so the mount effect never calls setState directly: the effect
+// only wires .then(setBlocked), matching the pattern used elsewhere.
+async function collectRequestedDates() {
+  const dates = new Set();
+  let page = 1;
+  let totalPages; // always assigned by the first loop pass before the check
+  // GET /requests is scoped to the caller and pages at 100 max per page.
+  do {
+    const { data } = await AxiosInstance.get('/requests', {
+      params: { page, limit: 100 },
+    });
+    for (const req of data.data || []) {
+      // Rejected requests don't block the calendar; pending and approved
+      // ones do (the API returns uppercase statuses).
+      if (req.status === 'PENDING' || req.status === 'APPROVED') {
+        addDateRange(dates, req.startDate, req.endDate);
+      }
+    }
+    totalPages = data.meta?.totalPages || 1;
+    page += 1;
+  } while (page <= totalPages && page <= 10);
+  return dates;
+}
+
 function EmployeePage() {
   const [form, setForm] = useState({
     startDate: '',
@@ -87,13 +129,46 @@ function EmployeePage() {
   });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  // Days already covered by a pending/approved request, for calendar coloring.
+  const [blocked, setBlocked] = useState(new Set());
+  const [startOpen, setStartOpen] = useState(false);
+  const [endOpen, setEndOpen] = useState(false);
 
   const minDate = today();
+
+  function loadBlockedDays() {
+    collectRequestedDates()
+      .then((dates) => setBlocked(dates))
+      .catch(() => {
+        // keep the previously loaded set
+      });
+  }
+
+  useEffect(() => {
+    loadBlockedDays();
+  }, []);
 
   function handleChange(e) {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
     setErrors((prev) => ({ ...prev, [name]: '' }));
+  }
+
+  function handleStartSelect(value) {
+    setForm((prev) => ({
+      ...prev,
+      startDate: value,
+      // keep the pair valid: drop an end date that now falls before the start
+      endDate: prev.endDate && prev.endDate < value ? '' : prev.endDate,
+    }));
+    setErrors((prev) => ({ ...prev, startDate: '', endDate: '' }));
+    setStartOpen(false);
+  }
+
+  function handleEndSelect(value) {
+    setForm((prev) => ({ ...prev, endDate: value }));
+    setErrors((prev) => ({ ...prev, endDate: '' }));
+    setEndOpen(false);
   }
 
   async function handleSubmit(e) {
@@ -124,7 +199,9 @@ function EmployeePage() {
       toast.success('Time-off request submitted successfully!');
       setForm({ startDate: '', endDate: '', reason: '', urgent: false });
       setErrors({});
+      loadBlockedDays(); // the new range turns red immediately
     } catch (err) {
+      console.error(err);
       toast.error(err.message || 'Failed to submit request');
     } finally {
       setSubmitting(false);
@@ -141,37 +218,82 @@ function EmployeePage() {
               Submit Time-Off Request
             </CardTitle>
             <CardDescription>
-              Weekdays only — Saturday and Sunday don&apos;t count toward your balance.
+              Sunday is the weekend and can&apos;t be selected. Only Mon–Fri
+              days count toward your balance.
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="startDate">Start Date</Label>
-                  <Input
-                    id="startDate"
-                    name="startDate"
-                    type="date"
-                    value={form.startDate}
-                    onChange={handleChange}
-                    min={minDate}
-                    aria-invalid={!!errors.startDate}
-                  />
+                  <Label>Start Date</Label>
+                  <Popover open={startOpen} onOpenChange={setStartOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full justify-between font-normal"
+                        aria-label="Start date"
+                      >
+                        <span
+                          className={
+                            form.startDate
+                              ? 'text-foreground'
+                              : 'text-muted-foreground'
+                          }
+                        >
+                          {form.startDate
+                            ? formatDate(form.startDate)
+                            : 'Pick a date'}
+                        </span>
+                        <CalendarIcon className="size-4 text-muted-foreground" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-auto p-3">
+                      <DateCalendar
+                        selected={form.startDate}
+                        minDate={minDate}
+                        blocked={blocked}
+                        onSelect={handleStartSelect}
+                      />
+                    </PopoverContent>
+                  </Popover>
                   <FieldError message={errors.startDate} />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="endDate">End Date</Label>
-                  <Input
-                    id="endDate"
-                    name="endDate"
-                    type="date"
-                    value={form.endDate}
-                    onChange={handleChange}
-                    min={form.startDate || minDate}
-                    aria-invalid={!!errors.endDate}
-                  />
+                  <Label>End Date</Label>
+                  <Popover open={endOpen} onOpenChange={setEndOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full justify-between font-normal"
+                        aria-label="End date"
+                      >
+                        <span
+                          className={
+                            form.endDate
+                              ? 'text-foreground'
+                              : 'text-muted-foreground'
+                          }
+                        >
+                          {form.endDate
+                            ? formatDate(form.endDate)
+                            : 'Pick a date'}
+                        </span>
+                        <CalendarIcon className="size-4 text-muted-foreground" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-auto p-3">
+                      <DateCalendar
+                        selected={form.endDate}
+                        minDate={form.startDate || minDate}
+                        blocked={blocked}
+                        onSelect={handleEndSelect}
+                      />
+                    </PopoverContent>
+                  </Popover>
                   <FieldError message={errors.endDate} />
                 </div>
               </div>

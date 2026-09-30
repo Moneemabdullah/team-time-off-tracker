@@ -1,11 +1,3 @@
-import { Loader2 } from "lucide-react";
-
-const Loader = () => {
-  return <Loader2 className="animate-spin" />;
-};
-
-export default Loader;
-
 export const PageLoader = () => {
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center gap-4">
