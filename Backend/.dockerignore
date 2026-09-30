@@ -1,7 +1,21 @@
 node_modules
-npm-debug.log
-.env
+dist
 .git
 .gitignore
+.env
+.env.*
+*.log
+coverage
+.vscode
+.idea
+.DS_Store
+Dockerfile
+.dockerignore
 README.md
-dist
+
+# The Dockerfile only compiles and runs `src`, and tsconfig includes
+# `src/**/*.ts` exclusively, so the test suite and its config are dead weight
+# in the build context.
+tests
+vitest.config.mts
+API.md
