@@ -1,18 +1,32 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Route, Routes } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import Navbar from './components/Navbar';
-import EmployeePage from './pages/EmployeePage';
-import AdminPage from './pages/AdminPage';
+
+import { AllRoutes } from './lib/routes';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
     <>
-      <Navbar />
       <Toaster position="top-center" />
+
       <Routes>
-        <Route path="/" element={<Navigate to="/employee" replace />} />
-        <Route path="/employee" element={<EmployeePage />} />
-        <Route path="/admin" element={<AdminPage />} />
+        {AllRoutes.map(
+          ({ path, element: Element, isProtected, role }, index) => (
+            <Route
+              key={index}
+              path={path}
+              element={
+                isProtected ? (
+                  <ProtectedRoute role={role}>
+                    <Element />
+                  </ProtectedRoute>
+                ) : (
+                  <Element />
+                )
+              }
+            />
+          )
+        )}
       </Routes>
     </>
   );
