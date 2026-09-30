@@ -41,6 +41,11 @@ under concurrency rather than feature breadth.
   and read the user list. Creating an employee emails them their temporary password.
 - **Email notifications** — credentials on account creation, and approval or rejection
   notices to the employee. Mailpit captures both locally instead of sending.
+- **Real-time urgent leave notifications** — an authenticated Socket.IO connection
+  pushes a newly submitted `urgent` request to admins, and the approve/reject outcome to
+  the employee who owns it. Notification only: REST and the database stay the source of
+  truth, and nothing is persisted, replayed or retried. There are no client-to-server
+  events, so an admin still acts through `PATCH /admin/requests/:id`.
 - **Seeded admin** — the first administrator is created from environment variables
   by `npm run seed`, which is safe to run repeatedly.
 - **Swagger / OpenAPI documentation** — interactive API reference at `/api-docs`,
@@ -61,6 +66,7 @@ under concurrency rather than feature breadth.
 | Mongoose 8 | ODM |
 | Zod 3 | Request and query validation |
 | CORS | Cross-origin access for the frontend dev server |
+| Socket.IO 4 | Authenticated real-time push for urgent leave events |
 | jsonwebtoken | JWT signing and verification |
 | bcryptjs | Password hashing |
 | nodemailer + ejs | Outbound mail and `.ejs` templates |
@@ -68,6 +74,7 @@ under concurrency rather than feature breadth.
 | dotenv | Environment variables |
 | nodemon + tsx | Development server with reload |
 | tsc | Type-check and build to `dist/` |
+| Vitest | Test runner for `npm test` |
 
 ### Frontend
 
@@ -98,12 +105,17 @@ team-time-off-tracker/
 │   ├── .env.example
 │   ├── package.json
 │   ├── tsconfig.json
+│   ├── vitest.config.mts          # npm test config
+│   ├── tests/
+│   │   └── socket.test.ts         # Socket.IO integration tests
 │   └── src/
 │       ├── config/
 │       │   ├── db.ts              # Mongoose connection
+│       │   ├── env.ts             # Zod-validated environment variables
 │       │   ├── swagger.ts         # OpenAPI definition
 │       │   └── swagger.docs.ts    # JSDoc for all endpoints
 │       ├── controllers/
+│       │   ├── admin.controller.ts
 │       │   ├── auth.controller.ts
 │       │   ├── request.controller.ts
 │       │   └── user.controller.ts
@@ -113,14 +125,15 @@ team-time-off-tracker/
 │       │   ├── timeOffRequest.model.ts
 │       │   └── user.model.ts      # identity, balance, role, passwordHash
 │       ├── routes/
-│       │   ├── index.ts           # mounts /auth, /users and /requests
+│       │   ├── index.ts           # mounts /auth, /users, /requests and /admin
+│       │   ├── admin.routes.ts
 │       │   ├── auth.routes.ts
 │       │   ├── request.routes.ts
 │       │   └── user.routes.ts
 │       ├── schemas/
 │       │   ├── request.schema.ts
 │       │   └── user.schema.ts
-│       ├── seed/
+│       ├── scripts/
 │       │   └── admin.ts           # npm run seed
 │       ├── services/
 │       │   ├── auth.service.ts    # bcrypt + JWT
@@ -130,10 +143,17 @@ team-time-off-tracker/
 │       │   ├── catchAsync.ts      # async route handler wrapper
 │       │   ├── errorHandler.ts    # single JSON error handler
 │       │   └── sendResponse.ts    # success envelope helper
+│       ├── socket/
+│       │   ├── index.ts           # initSocket, attaches to the HTTP server
+│       │   ├── auth.ts            # handshake JWT auth + room joining
+│       │   └── emitter.ts         # leave:urgent / leave:decision helpers
+│       ├── templates/             # .ejs mail templates
+│       ├── types/
 │       ├── utils/
 │       │   ├── AppError.ts
 │       │   ├── cookie.ts          # cookie read/write helpers
 │       │   ├── date.ts            # UTC date + weekday calculation
+│       │   ├── emailService.ts    # nodemailer + ejs sending
 │       │   ├── jwt.ts             # JWT sign/verify/decode
 │       │   └── token.ts           # session token + auth cookie
 │       ├── app.ts
@@ -195,7 +215,7 @@ cp Backend/.env.example Backend/.env
 | `JWT_SECRET` | `JWT_SECRET=` | **Required**, minimum 32 characters. `openssl rand -base64 48` |
 | `PORT` | `PORT=5000` | Optional, defaults to `5000`. |
 | `JWT_EXPIRES_IN` | `JWT_EXPIRES_IN=1h` | Optional. The cookie's `Max-Age` follows it. |
-| `CORS_ORIGIN` | `CORS_ORIGIN=http://localhost:5173` | Comma-separated allowed origins. Required in practice: credentialed cookies cannot be combined with a wildcard origin. |
+| `CORS_ORIGIN` | `CORS_ORIGIN=http://localhost:5173,http://localhost:3000` | Comma-separated allowed origins. Required in practice: credentialed cookies cannot be combined with a wildcard origin. `5173` is the Vite dev server, `3000` the frontend container. Socket.IO handshakes reuse this same list. |
 | `ADMIN_NAME` / `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `ADMIN_EMAIL=admin@example.com` | Used only by `npm run seed`. |
 | `EMAIL_SENDER_SMTP_HOST` / `EMAIL_SENDER_SMTP_PORT` | `EMAIL_SENDER_SMTP_HOST=localhost` | SMTP relay. Defaults target Mailpit on `1025`. Use `mailpit` as the host inside Docker. |
 | `EMAIL_SENDER_SMTP_USER` / `EMAIL_SENDER_SMTP_PASS` | *(blank)* | Leave blank for Mailpit; set both for a real relay. |
@@ -339,6 +359,22 @@ Responses use a consistent envelope:
 `userId` filter is admin-only; an employee who passes someone else's id receives
 `403`, and omitting it returns only their own requests.
 
+### Real-time events
+
+The table above is the whole API. Socket.IO adds no endpoints and changes no payloads —
+it only pushes a notification that something already committed:
+
+| Event          | Recipient          | When                                    |
+| -------------- | ------------------ | --------------------------------------- |
+| `leave:urgent` | connected admins   | An `urgent` request is created          |
+| `leave:decision` | the owning employee | An `urgent` request is approved or rejected |
+
+Both fire after the database write commits, only for `argency: 'urgent'`, and there are
+no client-to-server events. Clients pass the same JWT in the handshake
+(`auth: { token }`) and must still refetch over REST — a missed event costs nothing
+except a refresh. Full details, including the frontend integration spec, are in
+[Backend/API.md](Backend/API.md#real-time-notifications-socketio).
+
 ---
 
 ## Business Rules
@@ -386,7 +422,19 @@ cd Backend
 npm run dev     # nodemon + tsx, restarts on change
 npm run build   # type-check and compile TypeScript to dist/
 npm start       # run the compiled output
+npm test        # Vitest; needs the MongoDB replica set running
 ```
+
+`npm test` runs `tests/socket.test.ts` against a real app and a real database, because
+approving a request uses a transaction and a standalone `mongod` cannot. Start the
+database first:
+
+```bash
+docker compose up -d mongodb mongodb-init   # from the repository root
+```
+
+The suite creates and drops its own `team-time-off-tracker-socket-test` database and
+never touches your development data.
 
 ### Frontend
 
@@ -501,10 +549,20 @@ authentication** and has known defects:
 
 ### Backend
 
-- **There is no automated test suite.** The verification for this work was done with
-  throwaway scripts outside the repository, covering login, token handling, role
-  separation, the request rules and concurrent approvals. Those scripts are not
-  committed, so they cannot be re-run as-is.
+- **There is an automated test suite, but only for the socket.** `npm test` runs
+  `Backend/tests/socket.test.ts` (14 tests) against the real app and a real replica set.
+  The REST endpoints, validation rules and concurrent-approval behaviour are still only
+  covered by throwaway scripts outside the repository, so those are not committed and
+  cannot be re-run as-is.
+- **`npm test` requires the MongoDB replica set.** Approving a request uses a
+  transaction, and `mongodb-memory-server` is a standalone `mongod` that cannot do that,
+  so the suite cannot run without `docker compose up -d mongodb mongodb-init`.
+- **The frontend has no socket client yet.** The backend pushes `leave:urgent` and
+  `leave:decision`, but nothing subscribes to them yet. There is also no UI control for
+  `argency`, so a request cannot be marked urgent from the browser. Until both exist,
+  the events can only be observed with a script, and the feature is inert in the app.
+  The integration spec is in
+  [Backend/API.md](Backend/API.md#frontend-integration-spec).
 - **No user registration endpoint exists.** New users must be created directly in the
   database; only the initial admin can be created from the command line, via
   `npm run seed`. Adding a way to create further employees is an obvious next step.
@@ -524,9 +582,9 @@ authentication** and has known defects:
 - **`createUser` in the user service accepts a caller-supplied `role`,** so code that
   holds the admin password could mint another admin. No route reaches it today, so it is
   not exploitable, but it should be tightened before employee creation is exposed.
-- **CORS allows every origin** (`Access-Control-Allow-Origin: *`) and **login is not
-  rate limited**. Both are fine for local development and both need restricting before
-  any real deployment.
+- **CORS uses an explicit origin allowlist and login is not rate limited.** The allowlist
+  in `CORS_ORIGIN` is a development convenience, not a deployment policy, and rate
+  limiting is still needed before any real deployment.
 - **Tokens cannot be revoked individually** — there is no signout or deny list, so a
   token stays valid until it expires.
 - **The credentials email carries the password in plain text**, so it transits SMTP and
@@ -536,6 +594,13 @@ authentication** and has known defects:
 - **Email templates resolve from the process working directory** (`<cwd>/src/templates`),
   because `tsc` does not copy `.ejs` files into `dist/`. Running the server from a
   different directory will fail to find them.
+- **The SMTP transport has no timeout, so an unreachable relay stalls a request for
+  about two minutes.** `emailService.ts` sets no `connectionTimeout` or
+  `greetingTimeout`, so nodemailer falls back to its 120s default. This is harmless
+  against the Mailpit default, but pointing `EMAIL_SENDER_SMTP_HOST` at a relay the host
+  cannot reach makes `PATCH /admin/requests/:id` hang after the transaction has already
+  committed. The write succeeds; only the response is delayed. Adding an explicit
+  `connectionTimeout` is the fix, and it was left alone as unrelated to the socket work.
 - **`GET /users` excludes admins**, so the admin account never appears in the employee
   list.
 - **Unmatched routes return Express's default HTML 404**, not the `{ success, message }`

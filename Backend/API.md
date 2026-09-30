@@ -487,6 +487,102 @@ docker compose exec backend npm run seed
 
 ---
 
+# Real-time notifications (Socket.IO)
+
+Socket.IO is **only a notification mechanism**. REST and MongoDB remain the source of
+truth: nothing is persisted for a notification, and every client must be able to work
+with the socket disconnected. There is no notification table, no queue, and no retry.
+
+The server attaches Socket.IO to the same HTTP server and port as the REST API, so
+there is no extra port to expose.
+
+## Connecting
+
+Connect to the same origin as the REST API and pass the JWT in the handshake auth:
+
+```js
+const socket = io(import.meta.env.VITE_API_URL, {
+  auth: { token: getToken() }, // JWT from sessionStorage
+});
+```
+
+The handshake is verified with the same `jwtUtils.verifyToken` the REST middleware
+uses, and the user is re-read from the database. The role is taken from the database,
+never from the token. A missing or invalid token fails the connection with
+`unauthorized`, so the socket never joins a room.
+
+The browser cannot read the `authToken` cookie because it is `HttpOnly`, which is why
+the token is passed explicitly. Non-browser clients may instead send an
+`Authorization: Bearer <token>` handshake header; the two are read in that order.
+
+Two rooms are joined automatically on connect:
+
+| Room | Joined by |
+| --- | --- |
+| `user:<id>` | everyone, for their own updates |
+| `admins` | sockets whose role is `ADMIN` |
+
+Room names are internal routing labels. They are not chat or topic rooms.
+
+## Events
+
+Server to client only. There are **no client-to-server events**, and the client must
+not send any.
+
+| Event | Recipient | Payload |
+| --- | --- | --- |
+| `leave:urgent` | the `admins` room | the created request, same shape `POST /requests` returns |
+| `leave:decision` | `user:<ownerId>` | the updated request, same shape `PATCH /admin/requests/:id` returns |
+
+Both fire **after** the database write has committed, never inside the transaction,
+and only for `argency: 'urgent'`. A normal request produces no socket traffic at all.
+
+Socket events are additive: the existing emails for new requests and for approval or
+rejection are unchanged, and are still sent after the commit.
+
+## Frontend integration spec
+
+Not yet implemented on the frontend. Whoever picks this up needs:
+
+1. **A single shared socket.** Create it once in `src/lib/socket.js` and reuse it.
+   Do not open a socket per request or per event; the point of a persistent connection
+   is that it already exists when the event arrives.
+2. **Lifecycle tied to auth.** Connect when `authStore.status === 'authenticated'`,
+   disconnect on logout or when the token is cleared, and reconnect with the new token
+   after a re-login.
+3. **Reconnection.** `socket.io-client` reconnects automatically and replays the
+   handshake auth, so reconnection needs no special handling.
+4. **Refetch after a push.** The payload is a convenience, not a replacement for the
+   list call. On `leave:urgent` an admin should show a toast and call the existing list
+   endpoint; on `leave:decision` the employee should toast and update the shown
+   request and balance.
+5. **Treat the socket as optional.** Any screen must render correctly if it never
+   connects. Nothing may depend on a push having been received.
+
+## Offline behaviour
+
+Emitting to a room with no members is a silent no-op. An admin who is offline sees
+the urgent request on their next `GET /admin/requests`; an employee who is offline sees
+their decision on their next fetch. There is no replay or catch-up on reconnect —
+the client refetches instead, which is why REST stays authoritative.
+
+## Tests
+
+`tests/socket.test.ts` runs the real app against the real replica set, because
+approving a request uses a transaction. Start the database first:
+
+```bash
+docker compose up -d mongodb mongodb-init
+npm test
+```
+
+It covers handshake rejection, room targeting, urgent-versus-normal delivery, the
+null-server no-op and persistence. The suite uses its own
+`team-time-off-tracker-socket-test` database, which it drops before and after, and mocks
+`emailService` so no SMTP relay is needed.
+
+---
+
 # Known limitations
 
 Things that are true today and worth knowing before extending the API.
@@ -506,9 +602,11 @@ Things that are true today and worth knowing before extending the API.
   exploitable today, but it should not stay reachable. Drop the parameter, or have it
   reject anything other than `EMPLOYEE`, before exposing employee creation.
 
-- **CORS is wide open.** The backend serves `Access-Control-Allow-Origin: *`, which is
-  appropriate for local development but needs an explicit origin allowlist before any
-  real deployment.
+- **CORS uses a configured allowlist, but nothing else.** `app.ts` splits `CORS_ORIGIN`
+  on commas and passes the result to the `cors` middleware with `credentials: true`, so
+  the wildcard is no longer served. The defaults only cover the local Vite dev server
+  and the frontend container, and the list is a development convenience rather than a
+  deployment policy. The same list is reused for Socket.IO handshakes.
 
 - **Login is not rate limited.** Passwords are compared with bcrypt, which is slow by
   design, but there is no lockout or throttling, so credentials can still be guessed.
@@ -525,6 +623,20 @@ Things that are true today and worth knowing before extending the API.
   `Content-Type: text/html` rather than `{ "success": false, ... }`. A client parsing
   every response as JSON will throw on those. Fixing it means adding a catch-all
   `app.use()` after the routers.
+
+- **The SMTP transport has no timeout.** `emailService.ts` sets no `connectionTimeout`
+  or `greetingTimeout`, so nodemailer waits its 120s default when a relay is
+  unreachable. Against the Mailpit default this never happens, but pointing
+  `EMAIL_SENDER_SMTP_HOST` at a host the machine cannot reach makes the response to
+  `PATCH /admin/requests/:id` stall for about two minutes — after the transaction has
+  already committed, so the write itself is correct and only the response is late.
+  `sendEmailSafely` swallows failures but cannot shorten a hang. The socket tests mock
+  `emailService` for exactly this reason.
+
+- **Socket.IO is wired up server-side only.** The handshake, rooms and emits are tested
+  and working, but no client subscribes yet and the frontend has no `argency` control, so
+  nothing can actually be marked urgent from the browser. See
+  [Frontend integration spec](#frontend-integration-spec).
 
 ---
 
@@ -596,7 +708,7 @@ needs it.
 | `JWT_SECRET` | yes | Token signing key, minimum 32 characters |
 | `PORT` | no | Defaults to `5000` |
 | `JWT_EXPIRES_IN` | no | Any `jsonwebtoken` duration, defaults to `1h`. The cookie's `Max-Age` follows it. |
-| `CORS_ORIGIN` | no | Comma-separated allowed origins, defaults to `http://localhost:5173`. Needed because credentialed cookies cannot use a wildcard. |
+| `CORS_ORIGIN` | no | Comma-separated allowed origins, defaults to `http://localhost:5173`. Needed because credentialed cookies cannot use a wildcard. Add `http://localhost:3000` for the frontend container. Also used for Socket.IO handshakes. |
 | `EMAIL_SENDER_SMTP_HOST` | no | SMTP host, defaults to `localhost` (Mailpit) |
 | `EMAIL_SENDER_SMTP_PORT` | no | SMTP port, defaults to `1025`. Implicit TLS is used only on `465` |
 | `EMAIL_SENDER_SMTP_USER` / `EMAIL_SENDER_SMTP_PASS` | no | Leave blank for Mailpit; set both for a real relay |
