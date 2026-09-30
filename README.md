@@ -166,10 +166,30 @@ team-time-off-tracker/
 │       ├── main.jsx
 │       ├── App.jsx                # routes
 │       ├── components/
-│       │   └── Navbar.jsx
-│       └── pages/
-│           ├── EmployeePage.jsx   # submit a request
-│           └── AdminPage.jsx      # review and approve/reject
+│       │   ├── guards.jsx
+│       │   ├── Loader.jsx
+│       │   ├── ProtectedRoute.jsx
+│       │   ├── layout/DashboardLayout.jsx
+│       │   └── ui/                # badge, button, card, input, select, ...
+│       ├── lib/
+│       │   ├── axiosInstance.js   # base URL, Bearer token, 401 redirect
+│       │   ├── routes.js
+│       │   ├── status.js
+│       │   └── URLs.js
+│       ├── pages/
+│       │   ├── LoginPage.jsx
+│       │   ├── HomePage.jsx
+│       │   ├── EmployeePage.jsx   # submit a request, urgent checkbox
+│       │   ├── MyRequestsPage.jsx
+│       │   ├── ChangePasswordPage.jsx
+│       │   └── admin/
+│       │       ├── AdminDashboard.jsx
+│       │       ├── AllRequestsPage.jsx
+│       │       ├── AllEmployeesPage.jsx
+│       │       └── AddEmployeePage.jsx
+│       └── store/
+│           ├── authStore.js       # login state, token in sessionStorage
+│           └── adminStore.js      # admin lists and approve/reject
 ├── docker-compose.yml
 └── .gitignore
 ```
@@ -236,9 +256,9 @@ npm run seed        # from Backend/
 It creates the admin only if that email does not already exist, hashes the password
 with bcrypt, and never logs it. Safe to run more than once.
 
-The frontend reads `VITE_API_URL` and falls back to `http://localhost:5000` if it is not
-set. There is no `.env` file for the frontend; set it yourself if you need to point the
-UI at a different backend.
+The frontend reads `VITE_BACKEND_URI` and falls back to `http://localhost:5000` if it is
+not set. There is no `.env` file for the frontend; set it yourself if you need to point
+the UI at a different backend.
 
 ### Install Dependencies
 
@@ -517,35 +537,26 @@ These were made where the brief left room for interpretation.
 
 ## Known Limitations / Unfinished Work
 
-The backend is complete and verified. The frontend is **not integrated with
-authentication** and has known defects:
+### Frontend
 
-- **The frontend sends no credentials at all.** It has no login step and no
-  `credentials: 'include'` on its requests, so every call now fails — with `401`
-  because no token is sent, and with a CORS error even once one is. It needs a login
-  step plus `credentials: 'include'` on each request.
-- **The frontend still calls the removed `/employees` endpoints.** `AdminPage`
-  requests `/employees` and `POST /employees/reassign-annual-leave`; both moved to
-  `/users` and are now admin-only.
-- **`POST /requests` no longer accepts `name` and `email`.** The backend derives the
-  user from the token, so `EmployeePage` must drop those fields and send only
-  `startDate`, `endDate` and `reason`.
-- **`AdminPage` reads the wrong response shape.** It assigns the full
-  `{ success, data }` envelope to state and then calls `.filter()` on it, which
-  throws at runtime.
-- **`AdminPage` uses `_id`, but the API returns `id`.** Approve/reject therefore
-  calls `PATCH /requests/undefined`, and the list never refreshes after an update.
-- **`AdminPage` compares status against `'pending'`,** while the API returns
-  `'PENDING'`, so the approve/reject buttons never render.
-- **The frontend container cannot start.** `Frontend/Dockerfile` runs
-  `CMD ["npm", "start"]`, but `Frontend/package.json` defines no `start` script. The
-  service exits with an npm error.
-- **`EXPOSE 3000` does not match the Vite default ports** (5173 for dev, 4173 for
-  preview), and `vite.config.js` sets no `server.port`.
-- **`VITE_API_URL` is not set in Docker Compose.** The bundle falls back to
-  `http://localhost:5000`, which happens to work through the published port but is
-  not configured. Vite inlines this at build time, so it would need to be a build
-  argument.
+The backend and the frontend are integrated: there is a login step, the session token is
+sent as an `Authorization: Bearer` header, the admin pages call the `/admin` endpoints,
+and status and id handling match the API. Two things remain:
+
+- **There is no socket client.** The backend pushes `leave:urgent` and
+  `leave:decision`, but no frontend code subscribes to them — `socket.io-client` is not
+  a dependency yet. Until it is, urgent leave is submitted and reviewed through normal
+  request/response cycles and the real-time part is unused. The integration spec is in
+  [Backend/API.md](Backend/API.md#frontend-integration-spec).
+- **`VITE_BACKEND_URI` is not set in Docker Compose.** `axiosInstance.js` falls back to
+  `http://localhost:5000`, which happens to work through the published backend port but
+  is not configured. Vite inlines it at build time, so it would need to be a build
+  argument rather than a runtime one.
+- **The session token is only ever sent as a Bearer header.** The backend also sets an
+  `HttpOnly` `authToken` cookie, but the frontend does not send credentials, so the
+  cookie is currently unused. That is fine for the token-in-`sessionStorage` flow it
+  implements, but it is why a page reload cannot restore a session without the stored
+  token.
 
 ### Backend
 
@@ -558,10 +569,9 @@ authentication** and has known defects:
   transaction, and `mongodb-memory-server` is a standalone `mongod` that cannot do that,
   so the suite cannot run without `docker compose up -d mongodb mongodb-init`.
 - **The frontend has no socket client yet.** The backend pushes `leave:urgent` and
-  `leave:decision`, but nothing subscribes to them yet. There is also no UI control for
-  `argency`, so a request cannot be marked urgent from the browser. Until both exist,
-  the events can only be observed with a script, and the feature is inert in the app.
-  The integration spec is in
+  `leave:decision`, and the UI can now submit an `urgent` request, but nothing
+  subscribes to the events yet, so nothing is pushed in the running app. The
+  integration spec is in
   [Backend/API.md](Backend/API.md#frontend-integration-spec).
 - **No user registration endpoint exists.** New users must be created directly in the
   database; only the initial admin can be created from the command line, via

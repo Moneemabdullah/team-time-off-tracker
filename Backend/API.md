@@ -501,8 +501,11 @@ there is no extra port to expose.
 Connect to the same origin as the REST API and pass the JWT in the handshake auth:
 
 ```js
-const socket = io(import.meta.env.VITE_API_URL, {
-  auth: { token: getToken() }, // JWT from sessionStorage
+import { io } from 'socket.io-client';
+import { getToken } from '../lib/axiosInstance';
+
+const socket = io(import.meta.env.VITE_BACKEND_URI ?? 'http://localhost:5000', {
+  auth: { token: getToken() }, // JWT the frontend already stores in sessionStorage
 });
 ```
 
@@ -634,8 +637,8 @@ Things that are true today and worth knowing before extending the API.
   `emailService` for exactly this reason.
 
 - **Socket.IO is wired up server-side only.** The handshake, rooms and emits are tested
-  and working, but no client subscribes yet and the frontend has no `argency` control, so
-  nothing can actually be marked urgent from the browser. See
+  and working, and the UI can submit an `urgent` request, but `socket.io-client` is not
+  a frontend dependency and nothing subscribes yet, so no event reaches a browser. See
   [Frontend integration spec](#frontend-integration-spec).
 
 ---
