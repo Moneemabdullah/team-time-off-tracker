@@ -13,15 +13,85 @@ export const useAdminStore = create((set, get) => ({
   addingEmployee: false,
   reassigning: false,
 
+  // All Requests page: server-side pagination, 10 per page, mirroring the
+  // employee's My Requests page. Separate from `requests`, which the
+  // dashboard loads in one batch for its counts and recent lists.
+  allRequests: [],
+  allRequestsMeta: { total: 0, page: 1, limit: 10, totalPages: 1 },
+  allRequestsPage: 1,
+  allRequestsStatus: '',
+  allRequestsLoading: true,
+  allRequestsError: '',
+
   setStatusFilter: (statusFilter) => set({ statusFilter }),
   setNameFilter: (nameFilter) => set({ nameFilter }),
+
+  setAllRequestsPage: (page) =>
+    set({ allRequestsPage: page, allRequestsLoading: true, allRequestsError: '' }),
+
+  setAllRequestsStatus: (status) =>
+    set({
+      allRequestsStatus: status,
+      allRequestsPage: 1,
+      allRequestsLoading: true,
+      allRequestsError: '',
+    }),
+
+  loadAllRequests: async () => {
+    const { allRequestsPage, allRequestsStatus } = get();
+    set({ allRequestsLoading: true, allRequestsError: '' });
+    try {
+      const { data } = await AxiosInstance.get('/admin/requests', {
+        params: {
+          page: allRequestsPage,
+          limit: 10,
+          ...(allRequestsStatus ? { status: allRequestsStatus } : {}),
+        },
+      });
+      // A page/filter change issued while this response was in flight wins.
+      if (
+        get().allRequestsPage !== allRequestsPage ||
+        get().allRequestsStatus !== allRequestsStatus
+      ) {
+        return;
+      }
+      const meta = data.meta || {
+        total: 0,
+        page: allRequestsPage,
+        limit: 10,
+        totalPages: 1,
+      };
+      // The requested page no longer exists (e.g. a filter emptied it) —
+      // step back to the real last page; this triggers a refetch.
+      if (meta.totalPages >= 1 && meta.page > meta.totalPages) {
+        set({ allRequestsPage: meta.totalPages });
+        return;
+      }
+      set({
+        allRequests: data.data || [],
+        allRequestsMeta: meta,
+        allRequestsLoading: false,
+      });
+    } catch (err) {
+      if (
+        get().allRequestsPage !== allRequestsPage ||
+        get().allRequestsStatus !== allRequestsStatus
+      ) {
+        return;
+      }
+      set({
+        allRequestsError: err.message || 'Failed to load requests',
+        allRequestsLoading: false,
+      });
+    }
+  },
 
   loadData: async () => {
     const { statusFilter } = get();
     set({ loading: true, error: '' });
     try {
-      // limit=100 is interim until the list gets real pagination controls;
-      // the API defaults to 10 per page.
+      // Dashboard feed: counts + the 5 most recent rows. The All Requests
+      // page uses loadAllRequests instead (10 per page, real pagination).
       const [reqs, users] = await Promise.all([
         AxiosInstance.get('/admin/requests', {
           params: { limit: 100, ...(statusFilter ? { status: statusFilter } : {}) },

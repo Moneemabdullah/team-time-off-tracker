@@ -69,27 +69,17 @@ function AddEmployeePage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 text-center">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground ">Add Employee</h1>
-          <p className="text-sm text-muted-foreground">
-            Admin only — registers a new employee on the team.
-          </p>
-        </div>
-
-        <Card className="max-w-lg mx-auto shadow-lg">
-          <CardHeader>
-            <CardTitle className="flex flex-col items-start gap-2">
-                <div className="flex items-center gap-2">
-                                <UserPlusIcon className="size-4" />
-              New Employee
-              </div>
-                 <CardDescription>
+      <div className="mx-auto max-w-xl">
+        <Card className="border border-border shadow-xl">
+          <CardHeader className="text-center">
+            <CardTitle className="flex items-center justify-center gap-2">
+              <UserPlusIcon className="size-4 text-primary" />
+              Add Employee
+            </CardTitle>
+            <CardDescription>
               Starts with a 20-day balance; login credentials are emailed to
               the employee.
             </CardDescription>
-            </CardTitle>
-         
           </CardHeader>
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4">
@@ -142,7 +132,7 @@ function AddEmployeePage() {
                 <FieldError message={errors.password} />
               </div>
             </CardContent>
-            <div className="px-6 pb-6 pt-3">
+            <div className="px-6 pb-6 pt-4">
               <Button type="submit" className="w-full" disabled={adding}>
                 {adding && <Loader2Icon className="animate-spin" />}
                 Add Employee

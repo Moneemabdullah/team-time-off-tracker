@@ -23,35 +23,14 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import { StatCard } from '@/components/StatCard';
+import { formatDate } from '@/lib/format';
 import { statusBadgeClass, urgencyBadgeClass } from '@/lib/status';
 import AxiosInstance from '@/lib/axiosInstance';
 import { useAuthStore } from '@/store/authStore';
 import { URLs } from '@/lib/URLs';
 
 const PAGE_SIZE = 10;
-
-function formatDate(value) {
-  if (!value) return '—';
-  const dateOnly = String(value).split('T')[0];
-  const date = new Date(`${dateOnly}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return dateOnly;
-  return date.toLocaleDateString('en-US', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-function StatCard({ label, value }) {
-  return (
-    <div className="min-w-[7.5rem] rounded-xl border border-border bg-card px-4 py-2.5 shadow-sm">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-lg font-semibold tracking-tight text-foreground">
-        {value}
-      </p>
-    </div>
-  );
-}
 
 function MyRequestsPage() {
   const user = useAuthStore((s) => s.user);
