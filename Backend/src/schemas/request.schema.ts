@@ -33,24 +33,67 @@ export const createRequestSchema = z
   .object({
     startDate: dateOnly,
     endDate: dateOnly,
+    argency: z
+      .string()
+      .refine(
+        (value) => ['low', 'medium', 'high', 'urgent'].includes(value.toLowerCase()),
+        'Argency must be one of low, medium, high, urgent'
+      )
+      .transform((value) => value.toLowerCase())
+      .optional(),  
     reason: z.string().trim().min(3, 'Reason must be at least 3 characters long'),
   })
   .strict();
 
-export const listRequestsQuerySchema = z
+/** Page and limit are coerced because query parameters arrive as strings. */
+export const DEFAULT_LIMIT = 10;
+export const MAX_LIMIT = 100;
+
+// No `.catch()` here on purpose: it would silently turn `?page=abc` into page 1
+// instead of rejecting it. `.default()` only fills in a genuinely absent value.
+const page = z.coerce.number().int().min(1, 'page must be at least 1').default(1);
+const limit = z.coerce
+  .number()
+  .int()
+  .min(1, 'limit must be at least 1')
+  .max(MAX_LIMIT, `limit must not exceed ${MAX_LIMIT}`)
+  .default(DEFAULT_LIMIT);
+
+const statusFilter = z
+  .string()
+  .refine(
+    (value) => REQUEST_STATUSES.includes(value.toLowerCase() as RequestStatus),
+    'Status must be one of PENDING, APPROVED, REJECTED'
+  )
+  .transform(toStoredStatus)
+  .optional();
+
+/**
+ * `GET /requests` — the caller's own requests. There is deliberately no
+ * `userId` here: the owner comes from the token, so the filter cannot be used
+ * to reach another account.
+ */
+export const listMyRequestsQuerySchema = z
   .object({
-    status: z
-      .string()
-      .refine(
-        (value) => REQUEST_STATUSES.includes(value.toLowerCase() as RequestStatus),
-        'Status must be one of PENDING, APPROVED, REJECTED'
-      )
-      .transform(toStoredStatus)
-      .optional(),
-    /** Only honoured for admins; employees are always scoped to themselves. */
-    userId: objectId.optional(),
+    status: statusFilter,
+    page,
+    limit,
   })
   .strict();
+
+/** `GET /admin/requests` — every request, filterable by owner. */
+export const listAllRequestsQuerySchema = z
+  .object({
+    status: statusFilter,
+    /** Only admins may filter by owner. */
+    userId: objectId.optional(),
+    page,
+    limit,
+  })
+  .strict();
+
+export type ListMyRequestsQuery = z.infer<typeof listMyRequestsQuerySchema>;
+export type ListAllRequestsQuery = z.infer<typeof listAllRequestsQuerySchema>;
 
 export const updateRequestStatusSchema = z
   .object({
@@ -65,5 +108,4 @@ export const updateRequestStatusSchema = z
   .strict();
 
 export type CreateRequestInput = z.infer<typeof createRequestSchema>;
-export type ListRequestsQuery = z.infer<typeof listRequestsQuerySchema>;
 export type UpdateRequestStatusInput = z.infer<typeof updateRequestStatusSchema>;

@@ -4,11 +4,13 @@ import { userModel, type UserRole } from '../models/user.model';
 import { timeOffRequestModel } from '../models/timeOffRequest.model';
 import {
   type CreateRequestInput,
-  type ListRequestsQuery,
+  type ListAllRequestsQuery,
+  type ListMyRequestsQuery,
   type RequestStatus,
   type UpdateRequestStatusInput,
 } from '../schemas/request.schema';
 import { badRequest, conflict, forbidden, notFound } from '../utils/AppError';
+import { sendEmailSafely } from '../utils/emailService';
 import { countWeekdays, parseDateOnly, todayDateOnly, toDateOnlyString } from '../utils/date';
 
 /** A request in one of these states blocks the user's calendar. */
@@ -79,6 +81,30 @@ function toResponse(request: PopulatedRequest): Record<string, unknown> {
   };
 }
 
+/** Emails the affected employee that their request was approved or rejected. */
+async function notifyStatusChange(response: Record<string, unknown>): Promise<void> {
+  const user = response.user as { id?: string; name?: string; email?: string; annualLeaveBalance?: number } | undefined;
+  const status = String(response.status);
+
+  if (!user?.email) return;
+
+  await sendEmailSafely({
+    to: user.email,
+    subject: `Your leave request was ${status.toLowerCase()}`,
+    template: 'LeaveRequestUpdate',
+    templateData: {
+      name: user.name,
+      email: user.email,
+      status,
+      startDate: response.startDate,
+      endDate: response.endDate,
+      days: response.days,
+      reason: response.reason,
+      annualLeaveBalance: user.annualLeaveBalance,
+    },
+  });
+}
+
 export async function createRequest(input: CreateRequestInput, userId: string) {
   const startDate = parseDateOnly(input.startDate);
   const endDate = parseDateOnly(input.endDate);
@@ -111,6 +137,7 @@ export async function createRequest(input: CreateRequestInput, userId: string) {
     user: userId,
     startDate,
     endDate,
+    argency: input.argency ?? 'low',
     reason: input.reason,
     days,
     status: 'pending',
@@ -120,26 +147,57 @@ export async function createRequest(input: CreateRequestInput, userId: string) {
 }
 
 /** Employees are always scoped to their own requests; admins may filter. */
-export async function getRequests(query: ListRequestsQuery, authUser: { id: string; role: UserRole }) {
-  const filter: Record<string, unknown> = {};
+type PaginationQuery = { page: number; limit: number };
 
+type PaginatedRequests = {
+  items: Record<string, unknown>[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+};
+
+/**
+ * Shared count + skip/limit so both list routes page identically.
+ * Sorting by `createdAt` descending is unchanged from the pre-pagination list.
+ */
+async function paginate(
+  filter: Record<string, unknown>,
+  query: PaginationQuery
+): Promise<PaginatedRequests> {
+  const { page, limit } = query;
+
+  const [total, requests] = await Promise.all([
+    timeOffRequestModel.countDocuments(filter),
+    timeOffRequestModel
+      .find(filter)
+      .populate('user', USER_FIELDS)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+  ]);
+
+  return {
+    items: requests.map((request) => toResponse(request)),
+    meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+  };
+}
+
+/** `GET /requests` — always scoped to the caller. */
+export async function getMyRequests(
+  userId: string,
+  query: ListMyRequestsQuery
+): Promise<PaginatedRequests> {
+  const filter: Record<string, unknown> = { user: userId };
   if (query.status) filter.status = query.status;
 
-  if (authUser.role === 'ADMIN') {
-    if (query.userId) filter.user = query.userId;
-  } else {
-    if (query.userId && query.userId !== authUser.id) {
-      throw forbidden('You can only view your own leave requests');
-    }
-    filter.user = authUser.id;
-  }
+  return paginate(filter, query);
+}
 
-  const requests = await timeOffRequestModel
-    .find(filter)
-    .populate('user', USER_FIELDS)
-    .sort({ createdAt: -1 });
+/** `GET /admin/requests` — every request, optionally filtered by owner. */
+export async function getAllRequests(query: ListAllRequestsQuery): Promise<PaginatedRequests> {
+  const filter: Record<string, unknown> = {};
+  if (query.status) filter.status = query.status;
+  if (query.userId) filter.user = query.userId;
 
-  return requests.map((request) => toResponse(request));
+  return paginate(filter, query);
 }
 
 export async function updateRequestStatus(
@@ -198,7 +256,12 @@ export async function updateRequestStatus(
       await request.save({ session });
     });
 
-    return toResponse(await findPopulated(objectId));
+    // Sent only after the transaction has committed, so an SMTP round trip
+    // never holds the write open, and never inside the retry loop.
+    const updated = toResponse(await findPopulated(objectId));
+    await notifyStatusChange(updated);
+
+    return updated;
   } finally {
     await session.endSession();
   }
